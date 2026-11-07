@@ -33,6 +33,43 @@ func sameDataPermissionSnapshot(left, right []DataPermissionRule) bool {
 	return reflect.DeepEqual(left, right)
 }
 
+func hasActiveRolePermission(rules []DataPermissionRule) bool {
+	for _, rule := range rules {
+		if !rule.Enable {
+			continue
+		}
+		for _, raw := range rule.Permissions {
+			var target struct {
+				Type string `json:"auth_target_type"`
+			}
+			if json.Unmarshal(raw, &target) == nil && target.Type == "role" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Role-targeted results must be tied to the identity revision used to select
+// their effective rule. A membership change during gateway work is a denial,
+// even if the rule record itself has not changed.
+func (service *Service) rolePrincipalUnchanged(ctx context.Context, principal Principal, rules []DataPermissionRule) error {
+	if !hasActiveRolePermission(rules) {
+		return nil
+	}
+	current, _, err := service.Store.User(ctx, principal.User.ID)
+	if err != nil || !current.canUse(principal.Workspace) || current.Status != principal.User.Status ||
+		current.AuthRevision != principal.User.AuthRevision {
+		return ErrGateway
+	}
+	before, beforeMember := workspaceRoleWeight(principal.User, principal.Workspace)
+	after, afterMember := workspaceRoleWeight(current, principal.Workspace)
+	if !beforeMember || !afterMember || before != after {
+		return ErrGateway
+	}
+	return nil
+}
+
 // applicableDataPermissions selects only current-user, current-datasource
 // items. A malformed active item closes; disabled drafts cannot affect data.
 // Caller must compile every returned item against live gateway schema.
@@ -60,6 +97,14 @@ func applicableDataPermissions(rules []DataPermissionRule, principal Principal, 
 			if id == userID {
 				targeted = true
 				break
+			}
+		}
+		for _, raw := range rule.Permissions {
+			if weight, roleTarget := dataPermissionRoleWeight(raw); roleTarget {
+				actual, member := workspaceRoleWeight(principal.User, principal.Workspace)
+				if !member || (targeted && actual != weight) || (!targeted && actual == weight) {
+					return nil, nil, ErrGateway
+				}
 			}
 		}
 		if !targeted {

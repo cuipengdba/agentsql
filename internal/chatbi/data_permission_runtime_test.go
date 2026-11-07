@@ -237,6 +237,163 @@ func TestRestoredActiveWhitelistClosesBeforeGateway(t *testing.T) {
 	require.Zero(t, gateway.queries)
 }
 
+func TestActiveRoleQualifiedMultiUserWhitelistEnforcesAndRevokes(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	ctx := context.Background()
+	gateway := service.Gateway.(*fakeGateway)
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	admin, err := service.Identity.Verify(ctx, adminToken)
+	require.NoError(t, err)
+	adminBinding, err := service.binding(ctx, admin, "10")
+	require.NoError(t, err)
+	alice := testUser(t, "3", "role-alice")
+	require.NoError(t, service.Store.CreateUser(ctx, alice))
+	for _, id := range []ID{"2", "3"} {
+		user, _, err := service.Store.User(ctx, id)
+		require.NoError(t, err)
+		binding := adminBinding
+		binding.User = id
+		require.NoError(t, service.Store.put(ctx, bindingKey(Principal{User: user, Workspace: "1"}, "10"), binding, 0))
+	}
+	rule := testActiveRowPermission(t, "east")
+	var item map[string]any
+	require.NoError(t, json.Unmarshal(rule.Permissions[0], &item))
+	item["auth_target_type"] = "role"
+	item["auth_target_id"] = 2 // ordinary workspace member
+	item["white_list_user"] = "[3]"
+	tableID := browserTableID("10", "public", "sales")
+	columnItem := map[string]any{"type": "column", "ds_id": 10, "table_id": tableID,
+		"permissions": []any{map[string]any{"field_id": browserFieldID(tableID, "region"), "enable": true},
+			map[string]any{"field_id": browserFieldID(tableID, "amount"), "enable": false}},
+		"auth_target_type": "role", "auth_target_id": 2, "white_list_user": "[2]"}
+	request, err := json.Marshal(map[string]any{"name": "two members", "users": []int64{2, 3},
+		"white_list_user": "[2]", "permissions": []any{item, columnItem}})
+	require.NoError(t, err)
+	created := accountRequest(t, handler, http.MethodPost, "/api/v1/ds_permission/save", string(request), adminToken)
+	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
+	for _, id := range []ID{"2", "3"} {
+		user, _, err := service.Store.User(ctx, id)
+		require.NoError(t, err)
+		principal := Principal{User: user, Workspace: "1"}
+		binding, err := service.binding(ctx, principal, "10")
+		require.NoError(t, err)
+		_, err = service.query(ctx, principal, binding, "SELECT region FROM public.sales")
+		require.NoError(t, err)
+		require.Contains(t, gateway.lastQuery, "region = 'east'", id)
+		visible, err := service.schema(ctx, principal, binding)
+		require.NoError(t, err)
+		require.Len(t, visible, 1)
+		require.Equal(t, "region", visible[0].Name)
+		_, err = service.query(ctx, principal, binding, "SELECT amount FROM public.sales")
+		require.ErrorIs(t, err, ErrGateway)
+	}
+	require.Equal(t, 2, gateway.queries)
+
+	// A newly joined role member is denied until included and preflighted.
+	newMember := testUser(t, "4", "role-new")
+	require.NoError(t, service.Store.CreateUser(ctx, newMember))
+	newBinding := adminBinding
+	newBinding.User = newMember.ID
+	newPrincipal := Principal{User: newMember, Workspace: "1"}
+	require.NoError(t, service.Store.put(ctx, bindingKey(newPrincipal, "10"), newBinding, 0))
+	_, err = service.query(ctx, newPrincipal, newBinding, "SELECT region FROM public.sales")
+	require.ErrorIs(t, err, ErrGateway)
+	require.Equal(t, 2, gateway.queries)
+
+	// A listed user's role change invalidates the rule before gateway execution.
+	bob, revision, err := service.Store.User(ctx, "2")
+	require.NoError(t, err)
+	bob.Memberships[0].Weight = 1
+	bob.AuthRevision++
+	require.NoError(t, service.Store.put(ctx, userKey(bob.ID), bob, revision))
+	bobPrincipal := Principal{User: bob, Workspace: "1"}
+	bobBinding, err := service.binding(ctx, bobPrincipal, "10")
+	require.NoError(t, err)
+	_, err = service.query(ctx, bobPrincipal, bobBinding, "SELECT region FROM public.sales")
+	require.ErrorIs(t, err, ErrGateway)
+	require.Equal(t, 2, gateway.queries)
+
+	// An active whitelist change is a policy revision even though the listed
+	// users never bypass the row predicate.
+	bob.Memberships[0].Weight = 0
+	bob.AuthRevision++
+	require.NoError(t, service.Store.put(ctx, userKey(bob.ID), bob, revision+1))
+	bobPrincipal.User = bob
+	alice, aliceRevision, err := service.Store.User(ctx, "3")
+	require.NoError(t, err)
+	alicePrincipal := Principal{User: alice, Workspace: "1"}
+	aliceBinding, err := service.binding(ctx, alicePrincipal, "10")
+	require.NoError(t, err)
+	gateway.afterQuery = func() {
+		changed := alice
+		changed.Memberships[0].Weight = 1
+		changed.AuthRevision++
+		require.NoError(t, service.Store.put(ctx, userKey(changed.ID), changed, aliceRevision))
+		gateway.afterQuery = nil
+	}
+	result, err := service.query(ctx, alicePrincipal, aliceBinding, "SELECT region FROM public.sales")
+	require.ErrorIs(t, err, ErrGateway)
+	require.Empty(t, result.Data)
+	require.Equal(t, 3, gateway.queries)
+	alice, aliceRevision, err = service.Store.User(ctx, "3")
+	require.NoError(t, err)
+	alice.Memberships[0].Weight = 0
+	alice.AuthRevision++
+	require.NoError(t, service.Store.put(ctx, userKey(alice.ID), alice, aliceRevision))
+
+	stored, err := service.Store.DataPermissionRules(ctx, "1")
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+	gateway.afterQuery = func() {
+		changed := stored[0]
+		changed.WhiteList = "[3]"
+		require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", changed.ID), changed, 1))
+		gateway.afterQuery = nil
+	}
+	result, err = service.query(ctx, bobPrincipal, bobBinding, "SELECT region FROM public.sales")
+	require.ErrorIs(t, err, ErrGateway)
+	require.Empty(t, result.Data)
+	require.Equal(t, 4, gateway.queries)
+}
+
+func TestRoleTargetAndWhitelistCannotExpandExplicitScope(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	rule := testActiveRowPermission(t, "east")
+	var item map[string]any
+	require.NoError(t, json.Unmarshal(rule.Permissions[0], &item))
+	item["auth_target_type"] = "role"
+	item["auth_target_id"] = 2
+	for _, request := range []map[string]any{
+		{"name": "unknown role", "users": []int64{2}, "permissions": []any{map[string]any{"type": "row", "auth_target_type": "role", "auth_target_id": 9}}},
+		{"name": "outside group list", "users": []int64{2}, "white_list_user": "[3]", "permissions": []any{item}},
+		{"name": "outside item list", "users": []int64{2}, "permissions": []any{func() map[string]any {
+			copy := make(map[string]any, len(item)+1)
+			for key, value := range item {
+				copy[key] = value
+			}
+			copy["white_list_user"] = "[3]"
+			return copy
+		}()}},
+	} {
+		body, err := json.Marshal(request)
+		require.NoError(t, err)
+		response := accountRequest(t, handler, http.MethodPost, "/api/v1/ds_permission/save", string(body), adminToken)
+		require.Equal(t, http.StatusUnprocessableEntity, response.Code, response.Body.String())
+	}
+	rules, err := service.Store.DataPermissionRules(context.Background(), "1")
+	require.NoError(t, err)
+	require.Empty(t, rules)
+
+	rule.WhiteList = "[1]"
+	first, err := activationDigest(rule)
+	require.NoError(t, err)
+	rule.WhiteList = "[]"
+	second, err := activationDigest(rule)
+	require.NoError(t, err)
+	require.NotEqual(t, first, second)
+}
+
 func TestActiveOriginalRowPermissionChangeSuppressesInFlightResult(t *testing.T) {
 	service, principal, gateway, _, _ := serviceFixture(t)
 	ctx := context.Background()

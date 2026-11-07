@@ -12,9 +12,9 @@ import (
 	"unicode/utf8"
 )
 
-// DataPermissionRule is an encrypted workspace control-plane record. Only a
-// bounded PostgreSQL row-rule subset may be activated after live validation;
-// unsupported active rules fail closed on the ChatBI data paths.
+// DataPermissionRule is an encrypted workspace control-plane record. Active
+// rules are validated against the current gateway schema and identity scope;
+// unsupported shapes fail closed on every ChatBI data path.
 type DataPermissionRule struct {
 	ID          int64             `json:"id"`
 	OID         int64             `json:"oid"`
@@ -38,7 +38,7 @@ func validPermissionRule(rule DataPermissionRule) bool {
 		rule.Name == "" || len(rule.Name) > 128 || !utf8.ValidString(rule.Name) ||
 		strings.TrimSpace(rule.Name) != rule.Name || strings.ContainsAny(rule.Name, "\r\n\x00") ||
 		len(rule.Description) > 512 || !utf8.ValidString(rule.Description) || strings.ContainsRune(rule.Description, 0) ||
-		!validDataPermissionWhiteList(rule.WhiteList, rule.Enable) || len(rule.Permissions) > 32 || len(rule.Users) > 100 || rule.Created.IsZero() {
+		!validDataPermissionWhiteList(rule.WhiteList, rule.Enable, rule.Users) || len(rule.Permissions) > 32 || len(rule.Users) > 100 || rule.Created.IsZero() {
 		return false
 	}
 	seen := make(map[int64]bool, len(rule.Users))
@@ -56,13 +56,15 @@ func validPermissionRule(rule DataPermissionRule) bool {
 	return true
 }
 
-// Keep disabled SQLBot drafts round-trippable while ensuring that an active
-// whitelist cannot bypass the current runtime permission contract.
-func validDataPermissionWhiteList(raw string, enabled bool) bool {
+// A nonempty whitelist is retained as original-client metadata. In the
+// observed Community preview contract it does not exempt a user from a row or
+// column rule. Active lists must be a subset of the explicit group users so
+// they cannot silently introduce a new, unvalidated subject.
+func validDataPermissionWhiteList(raw string, enabled bool, users []int64) bool {
 	if raw == "[]" {
 		return true
 	}
-	if enabled || len(raw) > 2048 {
+	if len(raw) > 2048 {
 		return false
 	}
 	var entries []json.RawMessage
@@ -70,9 +72,13 @@ func validDataPermissionWhiteList(raw string, enabled bool) bool {
 		return false
 	}
 	seen := make(map[int64]bool, len(entries))
+	allowed := make(map[int64]bool, len(users))
+	for _, id := range users {
+		allowed[id] = true
+	}
 	for _, entry := range entries {
 		id, valid := parseSystemVariableID(entry)
-		if !valid || id < 1 || id > maxSQLBotBrowserID || seen[id] {
+		if !valid || id < 1 || id > maxSQLBotBrowserID || seen[id] || enabled && !allowed[id] {
 			return false
 		}
 		seen[id] = true

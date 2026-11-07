@@ -78,6 +78,14 @@ agentsql chatbi revoke-binding --config /etc/agentsql/chatbi.yaml --workspace 1 
 
 The command removes only this local Q&A mapping and commits the revocation and management audit atomically. Old conversations are denied when they access the datasource again. A stale command is rejected if the binding ID has rotated. Revoke the corresponding person binding, token or datasource grant separately in the gateway; `gateway_mapping_revoked: false` in the output makes that boundary explicit.
 
+## v4.7.0 active data permission rules
+
+An administrator first grants each target member a current workspace membership and personal gateway binding, then obtains live table and field IDs from the datasource field API. `POST /api/v1/ds_permission/save` accepts the original shape with `users`, `permissions`, and optional `white_list_user`. Activation preflights every row and column rule against the current gateway schema. `user_list` may explicitly list multiple members; each listed member receives the rule. After saving, verify field discovery, controlled Q&A, and gateway audit under each member's identity. A successful management response alone is not proof of data access.
+
+The built-in `auth_target_type=role` accepts only `auth_target_id=1` (workspace administrator) or `2` (ordinary member), with an explicit `users` list for that role. The role never automatically expands the list: a newly joined but unlisted role member is denied data requests, and a listed member's role change also closes until an administrator updates and preflights the rule. A nonempty group or item `white_list_user` must be a subset of `users` and **does not exempt** anyone from row or column filtering. History and export recheck current permissions after revocation or rule changes; stale SQL and results are withheld.
+
+In AgentSQL, `enable=false` is an inert draft. SQLBot Community v1.10.3 preview behaved differently for disabled groups and items. Do not directly import an original permission database or treat its disabled rules as equivalent AgentSQL policy. See the [v4.7.0 design contract](v4.7.0-design.md) and official release notes for precise supported forms, verified entries, and fail-closed boundaries.
+
 ## Rehearse an identity migration
 
 The `scripts/sqlbot-export-identities.py` exporter supports only the checked SQLBot Community v1.10.2 identity sources and `sqlbot-xpack 0.0.5.37`. It reads users, workspaces, password digests, the JWT secret and login RSA key inside the original instance environment. The export contains highly sensitive credentials: restrict permissions, encrypt transfers and retain it under your operational policy. Never add it to Git, tickets or Releases.

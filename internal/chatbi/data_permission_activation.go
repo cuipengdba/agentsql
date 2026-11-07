@@ -7,18 +7,51 @@ import (
 	"strconv"
 )
 
-// An explicit user target is supported only when it names the sole user in
-// the group. Other target forms remain closed until their runtime membership
-// semantics can be enforced on every data path.
+// The two built-in workspace roles are 1 (workspace administrator) and 2
+// (ordinary member). A role target qualifies an explicit user list; it never
+// expands the list or grants access to an unlisted role member.
+func dataPermissionRoleWeight(raw json.RawMessage) (int, bool) {
+	var target struct {
+		Type string          `json:"auth_target_type"`
+		ID   json.RawMessage `json:"auth_target_id"`
+	}
+	if json.Unmarshal(raw, &target) != nil || target.Type != "role" {
+		return 0, false
+	}
+	id, valid := parseSystemVariableID(target.ID)
+	if !valid || (id != 1 && id != 2) {
+		return 0, false
+	}
+	if id == 1 {
+		return 1, true
+	}
+	return 0, true
+}
+
+func workspaceRoleWeight(user User, workspace ID) (int, bool) {
+	for _, member := range user.Memberships {
+		if member.Workspace == workspace && (member.Weight == 0 || member.Weight == 1) {
+			return member.Weight, true
+		}
+	}
+	return 0, false
+}
+
+// Explicit user targets still require one group user. Multiple group users
+// are supported with an implicit target or a role-qualified explicit list.
 func supportedDataPermissionTarget(raw json.RawMessage, users []int64) bool {
 	var target struct {
 		Type      *string         `json:"auth_target_type"`
 		ID        json.RawMessage `json:"auth_target_id"`
 		WhiteList *string         `json:"white_list_user"`
 	}
-	if json.Unmarshal(raw, &target) != nil || target.Type != nil && *target.Type != "user" ||
-		target.WhiteList != nil && *target.WhiteList != "[]" {
+	if json.Unmarshal(raw, &target) != nil || target.Type != nil && *target.Type != "user" && *target.Type != "role" ||
+		target.WhiteList != nil && !validDataPermissionWhiteList(*target.WhiteList, true, users) {
 		return false
+	}
+	if target.Type != nil && *target.Type == "role" {
+		_, valid := dataPermissionRoleWeight(raw)
+		return valid && len(users) != 0
 	}
 	if len(target.ID) != 0 && string(target.ID) != "null" {
 		id, valid := parseSystemVariableID(target.ID)
@@ -42,7 +75,8 @@ func activationDigest(rule DataPermissionRule) ([32]byte, error) {
 		Enable      bool              `json:"enable"`
 		Permissions []json.RawMessage `json:"permissions"`
 		Users       []int64           `json:"users"`
-	}{rule.ID, rule.OID, rule.Enable, rule.Permissions, rule.Users})
+		WhiteList   string            `json:"white_list_user"`
+	}{rule.ID, rule.OID, rule.Enable, rule.Permissions, rule.Users, rule.WhiteList})
 	if err != nil {
 		return [32]byte{}, ErrInvalidDataPermission
 	}
@@ -73,6 +107,15 @@ func (h *Handler) validateDataPermissionActivation(ctx context.Context, principa
 	for _, raw := range rule.Permissions {
 		if !supportedDataPermissionTarget(raw, rule.Users) {
 			return nil, ErrInvalidDataPermission
+		}
+		if weight, roleTarget := dataPermissionRoleWeight(raw); roleTarget {
+			for _, targetID := range rule.Users {
+				user, _, err := h.service.Store.User(ctx, ID(strconv.FormatInt(targetID, 10)))
+				actual, member := workspaceRoleWeight(user, principal.Workspace)
+				if err != nil || !user.canUse(principal.Workspace) || !member || actual != weight {
+					return nil, ErrInvalidDataPermission
+				}
+			}
 		}
 		var item struct {
 			Type       string          `json:"type"`

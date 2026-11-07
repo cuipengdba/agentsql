@@ -46,6 +46,9 @@ func (service *Service) gatewaySchemaWithPermissionSnapshot(ctx context.Context,
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	if err := service.rolePrincipalUnchanged(ctx, principal, snapshot); err != nil {
+		return nil, nil, nil, err
+	}
 	rows, columnRules, err := applicableDataPermissions(snapshot, principal, binding)
 	if err != nil {
 		return nil, nil, nil, err
@@ -79,6 +82,9 @@ func (service *Service) gatewaySchemaWithPermissionSnapshot(ctx context.Context,
 	if err := service.dataPermissionUnchanged(ctx, principal.Workspace, snapshot); err != nil {
 		return nil, nil, nil, err
 	}
+	if err := service.rolePrincipalUnchanged(ctx, principal, snapshot); err != nil {
+		return nil, nil, nil, err
+	}
 	return columns, snapshot, blocked, nil
 }
 
@@ -107,6 +113,9 @@ func (service *Service) query(ctx context.Context, principal Principal, binding 
 	variables := service.newRowVariableSnapshot(ctx, principal)
 	snapshot, err := service.dataPermissionSnapshot(ctx, principal.Workspace)
 	if err != nil {
+		return QueryData{}, err
+	}
+	if err := service.rolePrincipalUnchanged(ctx, principal, snapshot); err != nil {
 		return QueryData{}, err
 	}
 	rows, columnRules, err := applicableDataPermissions(snapshot, principal, binding)
@@ -155,6 +164,9 @@ func (service *Service) query(ctx context.Context, principal Principal, binding 
 		return QueryData{}, err
 	}
 	if err := service.dataPermissionUnchanged(ctx, principal.Workspace, snapshot); err != nil {
+		return QueryData{}, err
+	}
+	if err := service.rolePrincipalUnchanged(ctx, principal, snapshot); err != nil {
 		return QueryData{}, err
 	}
 	if err := variables.unchanged(ctx); err != nil {

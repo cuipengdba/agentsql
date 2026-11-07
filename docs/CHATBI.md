@@ -78,6 +78,14 @@ agentsql chatbi revoke-binding --config /etc/agentsql/chatbi.yaml --workspace 1 
 
 命令只撤销这条本地问数映射，并将撤销与管理审计原子提交；旧会话再次访问该数据源时会被拒绝。绑定 ID 已轮换时，旧命令会拒绝执行。还需在网关单独撤销对应的人员绑定、令牌或数据源权限；命令输出的 `gateway_mapping_revoked: false` 明确表示它不会代替网关撤销。
 
+## v4.7.0 活动数据权限规则
+
+管理员先为每个目标成员建立当前工作空间及个人网关绑定，再从数据源字段 API 取得实时表、字段 ID。管理端的 `POST /api/v1/ds_permission/save` 接收原版形状的 `users`、`permissions` 和可选 `white_list_user`；启用时服务端用当前网关表结构预检每个行列规则。`user_list` 可明确列出多个成员，规则对每个列出成员执行。规则保存成功后，分别用成员身份测试字段枚举、受控问数和网关审计；不要只凭管理端的保存响应判断已授权。
+
+内建角色目标 `auth_target_type=role` 只接受 `auth_target_id=1`（工作空间管理员）或 `2`（普通成员），并要求 `users` 明确列出该角色下的成员。角色不能自动扩展用户：同角色新成员未列入时数据请求拒绝，列出成员改角色也拒绝，管理员须更新规则并重新预检。规则组和项的非空 `white_list_user` 必须是 `users` 子集，**不会豁免**行列过滤。撤销、修改角色、白名单或规则后，旧问数历史及导出按当前权限复核；旧 SQL 和结果不得继续释放。
+
+`enable=false` 在 AgentSQL 中是未执行的草稿；原版 SQLBot Community v1.10.3 的预览对禁用组/项有不同表现。不要直接导入原版权限库，或把原版禁用规则当作 AgentSQL 的等价策略。受支持的精确形态、验证入口和故障关闭边界见 [v4.7.0 设计合同](v4.7.0-design.md)及正式发布说明。
+
 ## 旧身份迁移预演
 
 导出工具 `scripts/sqlbot-export-identities.py` 只支持 SQLBot 社区版 v1.10.2 的已核对身份源码与 `sqlbot-xpack 0.0.5.37`。它在原实例环境读取用户、工作空间、密码摘要、JWT 密钥与登录 RSA 密钥。导出文件含高敏感凭据，应限制权限、加密传输并按运维制度保管；不得进入 Git、工单或 Release。
