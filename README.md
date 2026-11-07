@@ -7,13 +7,13 @@
   <img src="brand/agentsql-wordmark-light.svg" width="360" height="80" alt="AgentSQL">
 </picture>
 
-![Version v4.6.0](https://img.shields.io/badge/Version-v4.6.0-blue)
+![Version v4.7.0](https://img.shields.io/badge/Version-v4.7.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 
 **AgentSQL = 独立 AI 问数 Agent + MCP Server 数据库安全网关。** 用户可直接在 AgentSQL 自有页面用自然语言问数；其他 AI Agent 可把 AgentSQL 当作独立 MCP Server 使用。两条入口共用当前身份与授权、受控 SQL 执行、结果脱敏和持久审计。AgentSQL 自有问数不依赖 SQLBot；SQLBot 是可经固定版本适配器接入的可选客户端。
 
-[官网](https://agentsql.cn/) · [中文问数界面与功能示意](https://agentsql.cn/#qa-gallery) · [v4.6.0 下载与发布边界](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0) · [三种使用方式](docs/PRODUCT_MODES.md) · [文档索引](docs/README.md)
+[官网](https://agentsql.cn/) · [中文问数界面与功能示意](https://agentsql.cn/#qa-gallery) · [v4.7.0 下载与发布边界](https://github.com/cuipengdba/agentsql/releases/tag/v4.7.0) · [三种使用方式](docs/PRODUCT_MODES.md) · [文档索引](docs/README.md)
 
 ## 选一种使用方式
 
@@ -29,7 +29,7 @@ AgentSQL 自有页面 → Go 问数 Agent ─────┐
 外部 AI Agent → AgentSQL MCP Server ─┘
 ```
 
-## v4.6.0 能力与边界
+## v4.7.0 能力与边界
 
 | 能力 | 当前状态 | 关键边界 |
 | --- | --- | --- |
@@ -38,22 +38,23 @@ AgentSQL 自有页面 → Go 问数 Agent ─────┐
 | 基本助手与 Type 4 页面嵌入 | **限定路径已验** | 单数据源基本游客助手与指定页面嵌入，来源、身份及撤权仍受控 |
 | SQLBot 接入 | **可选固定基线** | 已验适配器可把指定 SQLBot 执行路径交给 AgentSQL MCP；不承诺任意部署零改动接入 |
 | Type 1 高级助手 | **限定路径已验** | 未修改 SQLBot Community v1.10.3 助手 SDK；运营方登记第三方目录，将外部 ID 映射到当前受权的网关别名，独立助手监听器不提供管理 API；只支持发布说明列明的场景 |
-| 更广兼容 | **后续规划** | 复杂活动权限规则与其余社区版页面/API 分别规划至 v4.7.0 和 v4.8.0 |
+| 活动数据权限 | **限定形态已验** | 明确列出的同工作空间用户；内建管理员/普通成员角色限定；非空白名单只作元数据，不豁免行列限制 |
+| 更广兼容 | **后续规划** | 任意角色扩展、原版权限库直接迁移与余下社区版页面/API 规划至 v4.8.0 |
 
-自然语言结果需要核对生成的 SQL 和业务含义。v4.6.0 **未在用户真实业务系统验证**，不宣称 100% 兼容或零改动切换；[正式发布说明](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0)给出精确提交、验收场景、性能数字与限制。公网 Demo 的问数模型仅作**模拟展示**。
+自然语言结果需要核对生成的 SQL 和业务含义。v4.7.0 **未在用户真实业务系统验证**，不宣称 100% 兼容或零改动切换；[正式发布说明](https://github.com/cuipengdba/agentsql/releases/tag/v4.7.0)给出精确提交、验收场景、性能数字与限制。公网 Demo 的问数模型仅作**模拟展示**。
 
 ## 快速开始
 
-Linux `amd64` / `arm64` 原生包要求 glibc ≥ 2.28 和 PID 1 的 systemd。下载正式包后先按[发布说明](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0)核对签名和哈希。以下命令安装网关；自有问数需要按[三种使用方式](docs/PRODUCT_MODES.md)安装问数组件并配置本地文本模型与个人数据源绑定。
+Linux `amd64` / `arm64` 原生包要求 glibc ≥ 2.28 和 PID 1 的 systemd。下载正式包后先按[发布说明](https://github.com/cuipengdba/agentsql/releases/tag/v4.7.0)核对签名和哈希。以下命令安装网关；自有问数需要按[三种使用方式](docs/PRODUCT_MODES.md)安装问数组件并配置本地文本模型与个人数据源绑定。
 
 ```bash
-curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.6.0/install.sh | sudo sh -s -- install --version v4.6.0
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.7.0/install.sh | sudo sh -s -- install --version v4.7.0
 ```
 
 Docker 使用多架构正式镜像；一键脚本仅绑定本机回环地址并创建持久卷：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.6.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v4.6.0
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.7.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v4.7.0
 ```
 
 网关控制台默认 `http://127.0.0.1:7780`，安装了问数组件后自有页面默认 `http://127.0.0.1:8000`。安装器生成持久管理员密码；非交互日志不输出，可由 root 在 `/etc/agentsql/agentsql.env` 查看。远程访问应使用 SSH 本地转发或受控 HTTPS 反向代理，不直接暴露管理端口。离线安装、密钥、备份和升级步骤见[部署指南](docs/DEPLOY.md)。
