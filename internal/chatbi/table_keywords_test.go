@@ -37,12 +37,17 @@ func TestOpenAITableKeywordsSendOnlyUserQuestionsAndFailClosed(t *testing.T) {
 	words, err := model.ExtractTableKeywords(context.Background(), config, "How much revenue?",
 		[]TurnContext{{Question: "Show orders", SQL: "SELECT SECRET FROM private.payroll"}})
 	if err != nil || words != "gross sales" || strings.Contains(requestBody.Load().(string), "SECRET") ||
-		!strings.Contains(requestBody.Load().(string), "Show orders") || !strings.Contains(requestBody.Load().(string), "How much revenue?") {
+		!strings.Contains(requestBody.Load().(string), "Show orders") || !strings.Contains(requestBody.Load().(string), "How much revenue?") ||
+		!strings.Contains(requestBody.Load().(string), "/no_think") {
 		t.Fatalf("unsafe extraction payload or result: words=%q err=%v body=%q", words, err, requestBody.Load().(string))
 	}
 	responseBody.Store(`{"choices":[{"message":{"content":"EMPTY"},"finish_reason":"stop"}]}`)
 	if words, err := model.ExtractTableKeywords(context.Background(), config, "hello", nil); err != nil || words != "" {
 		t.Fatalf("EMPTY should use original question: %q %v", words, err)
+	}
+	responseBody.Store(`{"choices":[{"message":{"content":""},"finish_reason":"length"}]}`)
+	if _, err := model.ExtractTableKeywords(context.Background(), config, "orders", nil); !errors.Is(err, ErrModel) {
+		t.Fatalf("keyword completion without a final answer must fail closed: %v", err)
 	}
 	status.Store(http.StatusInternalServerError)
 	if _, err := model.ExtractTableKeywords(context.Background(), config, "orders", nil); !errors.Is(err, ErrModel) {
