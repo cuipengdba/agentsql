@@ -7,13 +7,13 @@
   <img src="brand/agentsql-wordmark-light.svg" width="360" height="80" alt="AgentSQL">
 </picture>
 
-![Version v4.7.0](https://img.shields.io/badge/Version-v4.7.0-blue)
+![Version v4.8.0](https://img.shields.io/badge/Version-v4.8.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 
 **AgentSQL = an independent AI data Q&A agent plus an MCP Server database security gateway.** Users can ask natural-language questions in AgentSQL's own UI; other AI agents can use AgentSQL as an independent MCP Server. Both entry points share current identity and grants, controlled SQL execution, result masking, and durable audit. AgentSQL native Q&A does not depend on SQLBot. SQLBot is an optional client through a fixed-version adapter.
 
-[Website](https://agentsql.cn/en/) · [Chinese Q&A screenshots and concept images](https://agentsql.cn/en/#qa-gallery) · [v4.7.0 downloads and release scope](https://github.com/cuipengdba/agentsql/releases/tag/v4.7.0) · [Three usage modes](docs/en/PRODUCT_MODES.md) · [Documentation index](docs/en/README.md)
+[Website](https://agentsql.cn/en/) · [Chinese Q&A screenshots and concept images](https://agentsql.cn/en/#qa-gallery) · [v4.8.0 downloads and release scope](https://github.com/cuipengdba/agentsql/releases/tag/v4.8.0) · [Three usage modes](docs/en/PRODUCT_MODES.md) · [Documentation index](docs/en/README.md)
 
 ## Choose a usage mode
 
@@ -29,32 +29,33 @@ AgentSQL native UI → Go Q&A agent ───────┐
 External AI agent → AgentSQL MCP Server ┘
 ```
 
-## v4.7.0 capabilities and limits
+## v4.8.0 capabilities and limits
 
 | Capability | Current status | Key limit |
 | --- | --- | --- |
 | Native AI data Q&A | **Verified bounded path** | Native Go/Web Q&A with local models, operator-registered PostgreSQL gateway aliases, and current grants; **no SQLBot runtime** |
+| Private datasource binding rotation | **Verified bounded path** | Operators preflight a new gateway binding and current grants, then commit against the old binding ID and store revision; the browser cannot change targets or credentials |
 | MCP Server security gateway | **Independently usable** | stdio, Streamable HTTP, and independent stateless HTTP; an Agent Key is not an administrator token, and each request follows current grants |
 | Basic assistant and Type 4 page embed | **Verified bounded path** | One-source basic guest assistant and specified page embed; origin, identity, and revocation controls remain in force |
 | SQLBot integration | **Optional fixed baseline** | A verified adapter can route specified SQLBot execution through AgentSQL MCP; no blanket zero-change integration claim |
 | Type 1 advanced assistant | **Verified bounded path** | Unmodified SQLBot Community v1.10.3 assistant SDK; an operator-registered third-party directory maps external IDs to currently authorized gateway aliases, and the isolated assistant listener exposes no management API; only release-note scenarios are supported |
 | Active data permissions | **Verified bounded shape** | Explicit current workspace users; built-in administrator/member role qualifiers; nonempty whitelist metadata never exempts row or column filters |
-| Broader compatibility | **Planned** | Arbitrary role expansion, direct original-policy DB migration, and remaining Community UI/API paths are planned for v4.8.0 |
+| Broader compatibility | **Verified per entry** | Community UI/API, connector, and model combinations follow the release evidence matrix; arbitrary roles and direct original-policy DB migration remain unverified |
 
-Review generated SQL and business meaning before relying on a natural-language answer. v4.7.0 **has not been validated in the user's real business system**; it does not claim 100% compatibility or zero-change cutover. The [official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.7.0) identify the exact commit, acceptance cases, performance measurements, and limits. The public Demo's Q&A model is a **simulation**.
+Review generated SQL and business meaning before relying on a natural-language answer. v4.8.0 **has not been validated in the user's real business system**; it does not claim 100% compatibility or zero-change cutover. The [official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.8.0) identify the exact commit, acceptance cases, performance measurements, and limits. The public Demo's Q&A model is a **simulation**.
 
 ## Quick start
 
-Linux `amd64` / `arm64` native packages require glibc ≥ 2.28 and systemd as PID 1. Verify the official package signature and hashes against the [release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.7.0) first. This command installs the gateway; native Q&A also requires the Q&A component, a local text model, and personal datasource bindings as described in [three usage modes](docs/en/PRODUCT_MODES.md).
+Linux `amd64` / `arm64` native packages require glibc ≥ 2.28 and systemd as PID 1. Verify the official package signature and hashes against the [release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.8.0) first. This command installs the gateway; native Q&A also requires the Q&A component, a local text model, and personal datasource bindings as described in [three usage modes](docs/en/PRODUCT_MODES.md).
 
 ```bash
-curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.7.0/install.sh | sudo sh -s -- install --version v4.7.0
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.8.0/install.sh | sudo sh -s -- install --version v4.8.0
 ```
 
 Docker uses the official multi-architecture image. The quickstart script binds only to loopback and creates a persistent volume:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.7.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v4.7.0
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.8.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v4.8.0
 ```
 
 The gateway console defaults to `http://127.0.0.1:7780`; after the Q&A component is installed, its native UI defaults to `http://127.0.0.1:8000`. The installer generates a persistent administrator password. Non-interactive logs do not display it; root can inspect `/etc/agentsql/agentsql.env`. For remote access, use an SSH tunnel or controlled HTTPS reverse proxy rather than exposing the management port. See the [deployment guide](docs/en/DEPLOY.md) for offline installation, keys, backups, and upgrades.
