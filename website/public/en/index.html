@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AgentSQL | AI data Q&amp;A agent + MCP Server security gateway</title>
-  <meta name="description" content="AgentSQL combines an independent AI data Q&amp;A agent with an MCP Server database security gateway. Native Q&amp;A runs without SQLBot; a verified adapter can secure selected SQLBot paths. See v4.6.0 release limits.">
+  <meta name="description" content="AgentSQL combines an independent AI data Q&amp;A agent with an MCP Server database security gateway. Native Q&amp;A runs without SQLBot; a verified adapter can secure selected SQLBot paths. See v4.7.0 release limits.">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://agentsql.cn/en/">
   <link rel="alternate" hreflang="zh-CN" href="https://agentsql.cn/">
@@ -14,7 +14,7 @@
   <meta property="og:site_name" content="AgentSQL">
   <meta property="og:locale" content="en_US">
   <meta property="og:title" content="AgentSQL · AI data Q&amp;A agent + MCP Server security gateway">
-  <meta property="og:description" content="AgentSQL combines native AI data Q&amp;A with an independent MCP Server security gateway. SQLBot integration is optional and bounded by the v4.6.0 release notes.">
+  <meta property="og:description" content="AgentSQL combines native AI data Q&amp;A with an independent MCP Server security gateway. SQLBot integration is optional and bounded by the v4.7.0 release notes.">
   <meta property="og:url" content="https://agentsql.cn/en/">
   <meta property="og:image" content="https://agentsql.cn/assets/og-cover-en.png?v=3.6.0">
   <meta property="og:image:alt" content="AgentSQL: AI data Q&amp;A agent and MCP Server security gateway">
@@ -22,7 +22,7 @@
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="AgentSQL · AI data Q&amp;A agent + MCP Server security gateway">
-  <meta name="twitter:description" content="AgentSQL combines native AI data Q&amp;A with an independent MCP Server security gateway. SQLBot integration is optional and bounded by the v4.6.0 release notes.">
+  <meta name="twitter:description" content="AgentSQL combines native AI data Q&amp;A with an independent MCP Server security gateway. SQLBot integration is optional and bounded by the v4.7.0 release notes.">
   <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover-en.png?v=3.6.0">
   <meta name="twitter:image:alt" content="AgentSQL: AI data Q&amp;A agent and MCP Server security gateway">
   <link rel="icon" href="/favicon.svg?v=3.6.0" type="image/svg+xml">
@@ -67,14 +67,14 @@
     <section id="top" class="hero section">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v4.6.0</div>
+          <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v4.7.0</div>
           <h1>AI Q&amp;A Agent<br>MCP Server security gateway</h1>
           <p class="hero-lead">AgentSQL combines its own AI data Q&amp;A agent with an independent MCP Server database security gateway. Ask in AgentSQL or connect an external MCP client: both paths enforce current identity and grants, SQL checks, controlled execution, result masking, and durable audit.</p>
-          <p class="positioning">The native Go Q&amp;A service and Web UI run without SQLBot. A fixed-version SQLBot execution path may optionally connect through the verified adapter; arbitrary SQLBot deployments are not drop-in compatible. v4.6.0 covers only the bounded paths in its release notes and has not been validated on the user's actual business system.</p>
+          <p class="positioning">The native Go Q&amp;A service and Web UI run without SQLBot. A fixed-version SQLBot execution path may optionally connect through the verified adapter; arbitrary SQLBot deployments are not drop-in compatible. v4.7.0 covers only the bounded paths in its release notes and has not been validated on the user's actual business system.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">Check it out on GitHub</a>
             <a class="button button-secondary" href="#quickstart">Quick Start</a>
-            <a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0" target="_blank" rel="noopener noreferrer">v4.6.0 Release Notes</a>
+            <a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/releases/tag/v4.7.0" target="_blank" rel="noopener noreferrer">v4.7.0 Release Notes</a>
           </div>
           <p class="badge-line">Starting from v0.5.0 Apache-2.0 Open Source · Go single binary delivery (glibc/cgo build) · Self-hosted · No third-party telemetry dependencies</p>
           <p class="positioning">AgentSQL itself interprets the question, selects currently authorized schema and generates SQL; its security core decides whether execution and result delivery are allowed.</p>
@@ -113,7 +113,7 @@
 
     <section id="native-qa" class="section section-muted" aria-labelledby="native-qa-title">
       <div class="container">
-        <div class="section-heading"><p class="kicker">AgentSQL native Q&amp;A</p><h2 id="native-qa-title">AgentSQL owns the path from question to controlled result</h2><p>The Q&amp;A agent interprets questions and proposes SQL; the security gateway makes the final execution decision. v4.6.0 real-model and real-PostgreSQL acceptance covers only paths listed in the release notes.</p></div>
+        <div class="section-heading"><p class="kicker">AgentSQL native Q&amp;A</p><h2 id="native-qa-title">AgentSQL owns the path from question to controlled result</h2><p>The Q&amp;A agent interprets questions and proposes SQL; the security gateway makes the final execution decision. v4.7.0 real-model and real-PostgreSQL acceptance covers only paths listed in the release notes.</p></div>
         <div class="feature-grid qa-steps">
           <article class="feature-card"><span class="risk-index">01</span><h3>Resolve current identity</h3><p>Use current user, workspace, and datasource bindings to select permitted tables, columns, and business terms. Old sessions never inherit revoked grants.</p></article>
           <article class="feature-card"><span class="risk-index">02</span><h3>Generate candidate SQL</h3><p>The configured model interprets the question against authorized schema and generates SQL; a fixed local ONNX model helps select relevant tables. Users must still check business meaning.</p></article>
@@ -138,9 +138,9 @@
 
     <section id="capabilities" class="section" aria-labelledby="capabilities-title">
       <div class="container">
-        <div class="section-heading"><p class="kicker">Current capabilities</p><h2 id="capabilities-title">A capability matrix instead of a release-by-release list</h2><p>Statuses describe verified v4.6.0 paths and limits. See the release notes and integration guides for deployment details.</p></div>
+        <div class="section-heading"><p class="kicker">Current capabilities</p><h2 id="capabilities-title">A capability matrix instead of a release-by-release list</h2><p>Statuses describe verified v4.7.0 paths and limits. See the release notes and integration guides for deployment details.</p></div>
         <div class="table-wrap"><table class="compat-table">
-          <caption>AgentSQL v4.6.0 two-in-one product capabilities and verified scope</caption>
+          <caption>AgentSQL v4.7.0 two-in-one product capabilities and verified scope</caption>
           <thead><tr><th scope="col">Capability</th><th scope="col">Status</th><th scope="col">Boundary</th></tr></thead>
           <tbody>
             <tr><td>Independent AI data Q&amp;A agent</td><td>Verified bounded path</td><td>Native Go/Web Q&amp;A with local models and operator-registered PostgreSQL gateway aliases; no SQLBot runtime</td></tr>
@@ -148,7 +148,8 @@
             <tr><td>SQLBot integration</td><td>Optional fixed baseline</td><td>Verified adapter calls AgentSQL MCP; arbitrary SQLBot environments are not automatically compatible</td></tr>
             <tr><td>Basic assistant and page embed</td><td>Verified bounded path</td><td>One-source basic guest assistant and Type 4 page embed with origin and revocation limits</td></tr>
             <tr><td>Type 1 advanced assistant</td><td>Verified bounded path</td><td>Fixed SQLBot Community v1.10.3, operator-registered third-party directory, single-user explicit row rule, and controlled PostgreSQL gateway alias; configure host certificate and origin as documented</td></tr>
-            <tr><td>Broader permissions and Community parity</td><td>Planned</td><td>Active role, multi-user, and non-empty whitelist rules plus remaining Community pages/APIs are outside this release's support claim</td></tr>
+            <tr><td>Active data permissions</td><td>Verified bounded shape</td><td>Explicit current workspace users, built-in role qualifiers, and nonempty whitelist metadata; whitelist never exempts row or column filters, and unlisted users fail closed</td></tr>
+            <tr><td>Broader Community parity</td><td>Planned</td><td>Arbitrary role expansion, direct original-policy DB migration, and remaining Community pages/APIs are not claimed as verified</td></tr>
           </tbody>
         </table></div>
       </div>
@@ -251,15 +252,15 @@
           <article class="feature-card"><span class="risk-index">03</span><h3>MCP Access Guide</h3><p>Select existing ones based on client capabilities <code>/mcp</code>, independent and stateless <code>/mcp/2026-07-28</code> or stdio, view tools with reject boundaries.</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/INTEGRATIONS.md" target="_blank" rel="noopener noreferrer">Read online</a><a class="pdf-download" href="/assets/docs/agentsql-mcp-integrations-en-v4.6.0.pdf" download="agentsql-mcp-integrations-en-v4.6.0.pdf" aria-label="Download the MCP Access Guide PDF">PDF download</a></div></article>
         </div>
         <div class="license-panel callout">
-          <div class="docs-callout-copy"><h3>More information</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/DEPLOY.md" target="_blank" rel="noopener noreferrer">Deployment Guide</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/OPERATIONS.md" target="_blank" rel="noopener noreferrer">Current operation and maintenance manual</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v4.0.0-delivery.md" target="_blank" rel="noopener noreferrer">Offline delivery</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/SQLBOT.md" target="_blank" rel="noopener noreferrer">SQLBot access</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v4.6.0-design.md#production-deployment-boundary" target="_blank" rel="noopener noreferrer">Type 1 setup</a> · <a href="/en/demo/">Online demo instructions</a></p><p>v4.6.0 provides Linux amd64/arm64 installation packages and multi-architecture images; the Live Demo entry only uses synthetic data.</p><h4>GHCR multi-architecture pull (automatically matches amd64/arm64)</h4><pre class="install-command"><code>docker pull ghcr.io/cuipengdba/agentsql:v4.6.0</code></pre><h4>One-click installation (Linux amd64/arm64)</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.6.0/install.sh | sudo sh -s -- install --version v4.6.0</code></pre><p class="install-conditions">linux/arm64 native glibc package is provided starting from v0.4.0 · x86_64 / amd64 or aarch64 / arm64 · glibc ≥ 2.28 · systemd · requires sudo/root</p></div>
-          <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0" target="_blank" rel="noopener noreferrer">GitHub Release (v4.6.0)</a></div>
+          <div class="docs-callout-copy"><h3>More information</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/DEPLOY.md" target="_blank" rel="noopener noreferrer">Deployment Guide</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/OPERATIONS.md" target="_blank" rel="noopener noreferrer">Current operation and maintenance manual</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v4.0.0-delivery.md" target="_blank" rel="noopener noreferrer">Offline delivery</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/SQLBOT.md" target="_blank" rel="noopener noreferrer">SQLBot access</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v4.6.0-design.md#production-deployment-boundary" target="_blank" rel="noopener noreferrer">Type 1 setup</a> · <a href="/en/demo/">Online demo instructions</a></p><p>v4.7.0 provides Linux amd64/arm64 installation packages and multi-architecture images; the Live Demo entry only uses synthetic data.</p><h4>GHCR multi-architecture pull (automatically matches amd64/arm64)</h4><pre class="install-command"><code>docker pull ghcr.io/cuipengdba/agentsql:v4.7.0</code></pre><h4>One-click installation (Linux amd64/arm64)</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.7.0/install.sh | sudo sh -s -- install --version v4.7.0</code></pre><p class="install-conditions">linux/arm64 native glibc package is provided starting from v0.4.0 · x86_64 / amd64 or aarch64 / arm64 · glibc ≥ 2.28 · systemd · requires sudo/root</p></div>
+          <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases/tag/v4.7.0" target="_blank" rel="noopener noreferrer">GitHub Release (v4.7.0)</a></div>
         </div>
       </div>
     </section>
 
     <section id="compatibility" class="section section-muted">
       <div class="container">
-        <div class="section-heading"><p class="kicker">Compatibility</p><h2>Database compatibility matrix</h2><p>The matrix retains the database scope verified for v4.3.0; v4.6.0 does not expand production support claims. Each supported product, version and topology remains bound to its acceptance evidence.</p></div>
+        <div class="section-heading"><p class="kicker">Compatibility</p><h2>Database compatibility matrix</h2><p>The matrix retains the database scope verified for v4.3.0; v4.7.0 does not expand production support claims. Each supported product, version and topology remains bound to its acceptance evidence.</p></div>
         <div class="compat-summary"><strong>8 categories / 30 models registered</strong><span>openGauss and HighGo HighGo have been included; another designated instance of KingbaseES KingbaseES V9 is listed for PG protocol verification</span></div>
         <div class="table-wrap">
           <table class="compat-table">
@@ -321,11 +322,11 @@
         <div class="section-heading"><p class="kicker">Get started</p><h2>Quick Start</h2><p>It usually takes a few minutes to complete (subject to the network environment) when Docker and the dependent network are ready. GHCR tag will automatically match linux/amd64 or linux/arm64; the source code path is still subject to the repository README.</p></div>
         <div class="quick-grid">
           <article class="terminal-card"><div class="terminal-head"><span>GHCR</span><span>amd64 / arm64</span></div><pre><code><span class="comment"># Docker selects the image for the current platform automatically</span>
-docker pull ghcr.io/cuipengdba/agentsql:v4.6.0
+docker pull ghcr.io/cuipengdba/agentsql:v4.7.0
 
 <span class="comment"># Use the repository quickstart to generate credentials and start the demo</span>
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.6.0/scripts/quickstart.sh -o quickstart.sh
-sh quickstart.sh --version v4.6.0</code></pre><div class="terminal-foot">Default only binds <code>127.0.0.1:7780</code></div></article>
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.7.0/scripts/quickstart.sh -o quickstart.sh
+sh quickstart.sh --version v4.7.0</code></pre><div class="terminal-foot">Default only binds <code>127.0.0.1:7780</code></div></article>
           <article class="terminal-card"><div class="terminal-head"><span>Live Demo</span><span>synthetic data</span></div><pre><code><span class="comment"># Copy the demo environment example and replace the placeholder credentials</span>
 cp examples/docker/demo.env.example demo/demo.env
 
@@ -360,9 +361,8 @@ bash ./demo/reset.sh
 
     <section id="roadmap" class="section" aria-labelledby="roadmap-title">
       <div class="container">
-        <div class="section-heading"><p class="kicker">Future scope</p><h2 id="roadmap-title">Advance capabilities without repeating every release on the homepage</h2><p>Detailed changes and acceptance records remain in <a href="https://github.com/cuipengdba/agentsql/releases" target="_blank" rel="noopener noreferrer">GitHub Releases</a>. Current support follows the capability matrix above and the v4.6.0 release notes.</p></div>
+        <div class="section-heading"><p class="kicker">Future scope</p><h2 id="roadmap-title">Advance capabilities without repeating every release on the homepage</h2><p>Detailed changes and acceptance records remain in <a href="https://github.com/cuipengdba/agentsql/releases" target="_blank" rel="noopener noreferrer">GitHub Releases</a>. Current support follows the capability matrix above and the v4.7.0 release notes.</p></div>
         <ol class="roadmap">
-          <li><span>v4.7.0 planned</span><strong>Active role, multi-user, and non-empty whitelist rules</strong></li>
           <li><span>v4.8.0 planned</span><strong>Remaining Community pages/APIs and wider connector parity</strong></li>
         </ol>
       </div>
@@ -381,7 +381,7 @@ bash ./demo/reset.sh
         <div class="faq-list">
           <details><summary>How does it relate to MCP?</summary><p>It is itself an MCP Server; MCP is the standard protocol for model communication with external tools/data.</p></details>
           <details><summary>Can't the model be connected to the database without MCP?</summary><p>Yes, applications can also use self-developed APIs, database agents or server-side managed credentials to connect; AgentSQL provides a unified identity, policy, controlled execution and audit entrance for MCP, not the only connection method.</p></details>
-          <details><summary>How does AgentSQL Q&amp;A relate to SQLBot?</summary><p>AgentSQL has its own Go Q&amp;A agent, Web UI, and model orchestration; it does not require SQLBot. SQLBot is an optional integration that can route database execution through the verified AgentSQL MCP security gateway adapter. This does not imply full SQLBot feature parity; see the v4.6.0 release notes.</p></details>
+          <details><summary>How does AgentSQL Q&amp;A relate to SQLBot?</summary><p>AgentSQL has its own Go Q&amp;A agent, Web UI, and model orchestration; it does not require SQLBot. SQLBot is an optional integration that can route database execution through the verified AgentSQL MCP security gateway adapter. This does not imply full SQLBot feature parity; see the v4.7.0 release notes.</p></details>
           <details><summary>How is the performance?</summary><p>Static determination is at the millisecond level; in the benchmark of in-memory fake executor, 20 workers / 200,000 samples, stripping the real database network and execution time, the gateway CPU path P99 is about 1.81 ms. This number is not the end-to-end query delay. The real delay depends on the connection, EXPLAIN, database execution and audit storage.</p></details>
           <details><summary>Can individuals and companies use it?</summary><p>The current release is licensed under Apache-2.0. Read the repository's LICENSE and NOTICE for the conditions of use, modification and distribution.</p></details>
           <details><summary>What databases/clients are supported?</summary><p>Please see above<a href="#compatibility">Compatibility matrix</a>, which lists the business database, control plane, MCP transport, host and deployment scope.</p></details>
