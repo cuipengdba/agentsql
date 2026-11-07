@@ -70,13 +70,32 @@ agentsql chatbi configure --config /etc/agentsql/chatbi.yaml --from connections.
 
 Configuration and its local management audit commit together. Credentials are encrypted, and the next question reads the updated configuration. Successful configuration does not prove live queries work; validate allowed, denied, masked, audited and failure cases. The current service uses one default model per workspace and manages personal bindings through the CLI.
 
-`configure` upserts entries; omitting a binding from the JSON file does not revoke a stored binding. Confirm the current Q&A workspace, user and datasource IDs and the gateway binding ID, then run:
+`configure` can add personal bindings and update models and other configuration. For an existing binding, only an identical replay is accepted without changing its revision. Any changed field is rejected: use the live gateway preflight in `rotate-binding` for a database target or private credential change, and the scoped authorized APIs for display metadata or table selection. This prevents an old configuration file from overwriting saved selection and permission state. Omitting a binding from the JSON file does not revoke it. Confirm the current Q&A workspace, user and datasource IDs and the gateway binding ID, then run:
 
 ```sh
 agentsql chatbi revoke-binding --config /etc/agentsql/chatbi.yaml --workspace 1 --user 1 --datasource 10 --expected-binding-id REPLACE_WITH_GATEWAY_BINDING_ID
 ```
 
 The command removes only this local Q&A mapping and commits the revocation and management audit atomically. Old conversations are denied when they access the datasource again. A stale command is rejected if the binding ID has rotated. Revoke the corresponding person binding, token or datasource grant separately in the gateway; `gateway_mapping_revoked: false` in the output makes that boundary explicit.
+
+To replace a database connection or private credentials, first create and verify the new person binding and datasource grant in the controlled gateway. Prepare `rotation.private.json` readable only by the operations terminal:
+
+```json
+{
+  "workspace": "1", "user": "1", "datasource": "10",
+  "expected_binding_id": "CURRENT_GATEWAY_BINDING_ID",
+  "binding_id": "NEW_GATEWAY_BINDING_ID",
+  "connector_token": "NEW_CONNECTOR_SECRET",
+  "agent_key": "NEW_AGENT_KEY",
+  "resolve_name": "sales"
+}
+```
+
+```sh
+agentsql chatbi rotate-binding --config /etc/agentsql/chatbi.yaml --from rotation.private.json
+```
+
+The command preflights the new mapping's authorized schema and current row and column permissions, then compares the expected old binding ID and store revision before atomically writing the encrypted local mapping and management audit. An in-flight request rechecks the binding revision before returning data. After rotation, repeat live allowed, denied and audit checks, then revoke the old gateway binding and token in the gateway. This command does not create or rotate a gateway connection; `gateway_mapping_rotated: false` states that boundary. The original browser datasource form edits display metadata only and cannot submit database credentials.
 
 ## v4.7.0 active data permission rules
 

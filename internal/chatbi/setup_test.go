@@ -63,6 +63,61 @@ func TestConnectionConfigRejectsInvalidModelBeforeChanges(t *testing.T) {
 	}
 }
 
+func TestConfigureConnectionsCannotBypassBindingRotation(t *testing.T) {
+	ctx := context.Background()
+	service, principal, _, _, _ := serviceFixture(t)
+	store := service.Store
+	key := bindingKey(principal, "10")
+	var original Binding
+	revision, err := store.get(ctx, key, &original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ConfigureConnections(ctx, ConnectionConfig{Bindings: []Binding{original}}); err != nil {
+		t.Fatalf("identical operator replay was rejected: %v", err)
+	}
+	var stored Binding
+	replayedRevision, err := store.get(ctx, key, &stored)
+	if err != nil || replayedRevision != revision {
+		t.Fatalf("identical replay changed the binding revision: %d -> %d, %v", revision, replayedRevision, err)
+	}
+	for _, change := range []struct {
+		name string
+		edit func(*Binding)
+	}{
+		{"gateway target", func(b *Binding) { b.BindingID = "different-binding" }},
+		{"connector secret", func(b *Binding) { b.ConnectorToken = "different-secret" }},
+		{"selected tables", func(b *Binding) { b.SelectedTables = `[{"schema":"public","table":"other"}]` }},
+		{"display metadata", func(b *Binding) { b.Name = "stale-display-name" }},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			attempt := original
+			change.edit(&attempt)
+			if err := store.ConfigureConnections(ctx, ConnectionConfig{Bindings: []Binding{attempt}}); !errors.Is(err, ErrConflict) {
+				t.Fatalf("existing binding was overwritten without preflight: %v", err)
+			}
+			var after Binding
+			gotRevision, err := store.get(ctx, key, &after)
+			if err != nil || gotRevision != revision || after != original {
+				t.Fatalf("rejected configuration changed the binding: revision=%d, err=%v", gotRevision, err)
+			}
+		})
+	}
+	// A mixed file must not update its model when one binding is stale.
+	changed := original
+	changed.AgentKey = "stale-agent-key"
+	model := ModelConfig{ID: "1", Model: "replacement-model", Endpoint: "https://example.invalid/v1"}
+	if err := store.ConfigureConnections(ctx, ConnectionConfig{
+		Bindings: []Binding{changed}, Models: []WorkspaceModel{{Workspace: "1", Model: model}},
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("mixed configuration bypassed binding guard: %v", err)
+	}
+	var currentModel ModelConfig
+	if _, err := store.get(ctx, objectKey{"model", "1", "workspace", "default"}, &currentModel); err != nil || currentModel.Model == model.Model {
+		t.Fatalf("mixed configuration partially updated the model: %v", err)
+	}
+}
+
 func TestOperatorRevokeBindingRejectsStaleIDAndAuditFailure(t *testing.T) {
 	ctx := context.Background()
 	service, principal, gateway, _, _ := serviceFixture(t)

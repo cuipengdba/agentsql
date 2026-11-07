@@ -70,13 +70,32 @@ agentsql chatbi configure --config /etc/agentsql/chatbi.yaml --from connections.
 
 配置与本地管理审计一起提交，凭据加密保存，下一次问数读取新配置。配置成功不等于真实查询成功；需要实际验证允许、拒绝、脱敏、审计和故障场景。当前使用每个工作空间一个默认模型，个人绑定通过命令行维护。
 
-`configure` 是增量写入；从 JSON 文件中删去一条绑定不会撤销已保存的绑定。撤销时先确认当前问数侧工作空间、用户、数据源 ID 和网关绑定 ID，然后运行：
+`configure` 可以新增个人绑定及更新模型等配置；对已有绑定只接受完全相同的重复提交，保持其修订号。任何字段变化都会拒绝，数据库目标或私有凭据变更须使用下文带实时网关预检的 `rotate-binding`；展示元信息和选表请用对应受权接口。这样重新运行旧配置文件不会覆盖已保存的选表和权限状态。从 JSON 文件中删去一条绑定不会撤销已保存的绑定。撤销时先确认当前问数侧工作空间、用户、数据源 ID 和网关绑定 ID，然后运行：
 
 ```sh
 agentsql chatbi revoke-binding --config /etc/agentsql/chatbi.yaml --workspace 1 --user 1 --datasource 10 --expected-binding-id REPLACE_WITH_GATEWAY_BINDING_ID
 ```
 
 命令只撤销这条本地问数映射，并将撤销与管理审计原子提交；旧会话再次访问该数据源时会被拒绝。绑定 ID 已轮换时，旧命令会拒绝执行。还需在网关单独撤销对应的人员绑定、令牌或数据源权限；命令输出的 `gateway_mapping_revoked: false` 明确表示它不会代替网关撤销。
+
+需要更换数据库连接或私有凭据时，先在受控网关创建并核对新的人员绑定与数据源权限，再准备仅运维终端可读的 `rotation.private.json`：
+
+```json
+{
+  "workspace": "1", "user": "1", "datasource": "10",
+  "expected_binding_id": "CURRENT_GATEWAY_BINDING_ID",
+  "binding_id": "NEW_GATEWAY_BINDING_ID",
+  "connector_token": "NEW_CONNECTOR_SECRET",
+  "agent_key": "NEW_AGENT_KEY",
+  "resolve_name": "sales"
+}
+```
+
+```sh
+agentsql chatbi rotate-binding --config /etc/agentsql/chatbi.yaml --from rotation.private.json
+```
+
+该命令先用新映射读取受权结构并检查当前行列权限，再以预期旧绑定 ID 和存储修订号比较写入本地加密映射及管理审计。旧请求在返回数据前复核映射修订号；轮换成功后须用实际问数、拒绝及审计复验，并在网关撤销旧绑定和旧令牌。命令不会创建或轮换网关侧连接，输出中的 `gateway_mapping_rotated: false` 表示这一边界。原版浏览器数据源表单只可编辑显示元数据，不能提交数据库凭据。
 
 ## v4.7.0 活动数据权限规则
 
