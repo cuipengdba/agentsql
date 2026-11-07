@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "4b54998193ac01f95429be6af3ee28dd4ee1b02430328020fb73fea4dc7ebe84"
+      "source_sha256": "b096904990cc54b74fa624110ebf7f578ed73da281c7921d89491f1b7684fafa"
     },
     {
       "source": "CHANGELOG.md",
@@ -14,7 +14,7 @@
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "592698f7ceb8f6a767d4dcd6e8f67963c9a6ffb20d4f7990e4171787058b9962"
+      "source_sha256": "3ed5158f160a21933ad3959f087317861754763022c8a92463c9b3002e43e16b"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -1279,7 +1279,7 @@
     {
       "source": "docs/PRODUCT_MODES.md",
       "english": "docs/en/PRODUCT_MODES.md",
-      "source_sha256": "4e98b112b592e5a03362f823bbd6ed55ffa0d87c1b52b8bdd5019c65a163d6a0"
+      "source_sha256": "2233f7f16e2ab0434d440ea7b29b6f002e3d0ed959483ecc752370e80e7bae82"
     },
     {
       "source": "docs/v4.6.0-design.md",

@@ -57,10 +57,10 @@ External AI agent → AgentSQL MCP Server ┘
 
 **Use when:** employees and enterprise AI agents both need data access. The two entry points share a security core, while identities, credentials, and grants must be configured and verified separately. The public [Demo](https://agentsql.cn/en/demo/) uses a simulated Q&A model and cannot substitute for real-model and real-database acceptance.
 
-## v4.6.0 limits and further reading
+## Current verified limits and further reading
 
-- Verified paths and performance measurements are in the [v4.6.0 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0). There is no guarantee that every natural-language answer is correct, and a fixed test case does not establish support for every database.
+- Verified paths and performance measurements are in the [v4.8.1 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.8.1) and each feature's acceptance evidence. There is no guarantee that every natural-language answer is correct, and a fixed test case does not establish support for every database.
 - v4.6.0 adds bounded Type 1 advanced-assistant and third-party directory integration for fixed SQLBot Community v1.10.3. Follow the [Type 1 setup](v4.6.0-design.md) to register a real non-admin user, existing authorized gateway alias, private directory, and host certificate before enabling the separate assistant service. The catalog cannot supply database credentials or bypass current grants.
-- Active role, multi-user, and non-empty allow-list rules remain planned for v4.7.0; remaining Community pages/APIs and wider connector parity remain planned for v4.8.0. Deferred paths stay denied or configuration-only.
+- v4.7.0 delivered bounded role, multi-user, and non-empty allow-list rules; v4.8.0/1 delivered bounded paths and the concurrent index-budget fix. Full Community page/API operations, wider connector parity, real cloud-model inference, and production-scale p95 still lack complete acceptance. Unsupported paths remain denied or configuration-only.
 - The user's real business system has not been validated; this is not a claim of 100% compatibility or zero-change cutover. Production still requires database least privilege, network isolation, backups, and local acceptance.
 - Detailed guides: [native Q&A configuration](CHATBI.md) · [MCP integration](INTEGRATIONS.md) · [gateway user guide](USER_GUIDE.md) · [security boundaries](../../SECURITY.en.md).
