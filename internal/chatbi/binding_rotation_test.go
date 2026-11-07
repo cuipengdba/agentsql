@@ -115,6 +115,17 @@ func unchangedRotation(t *testing.T, service *Service, principal Principal) {
 }
 
 func TestReadBindingRotationRejectsUnexpectedInput(t *testing.T) {
+	valid, err := json.Marshal(fixtureRotation())
+	if err != nil {
+		t.Fatal(err)
+	}
+	validPath := filepath.Join(t.TempDir(), "valid.json")
+	if err := os.WriteFile(validPath, valid, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if rotation, err := ReadBindingRotation(validPath); err != nil || rotation != fixtureRotation() {
+		t.Fatalf("valid private rotation was rejected: %v", err)
+	}
 	for _, body := range []string{
 		`{}`, `{"workspace":"1","user":"1","datasource":"10","expected_binding_id":"binding","binding_id":"new","connector_token":"secret","agent_key":"key","extra":true}`,
 		`{"workspace":"1","user":"1","datasource":"10","expected_binding_id":"binding","binding_id":"new","connector_token":"secret","agent_key":"key"} {}`,
@@ -126,5 +137,12 @@ func TestReadBindingRotationRejectsUnexpectedInput(t *testing.T) {
 		if _, err := ReadBindingRotation(path); err == nil {
 			t.Fatal("invalid rotation file accepted")
 		}
+	}
+	oversizedPath := filepath.Join(t.TempDir(), "oversized.json")
+	if err := os.WriteFile(oversizedPath, append(valid, make([]byte, 1<<20)...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadBindingRotation(oversizedPath); err == nil {
+		t.Fatal("oversized private rotation was accepted")
 	}
 }
