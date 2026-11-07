@@ -63,8 +63,12 @@ func selectModelTablesForAsk(ctx context.Context, store *Store, p Principal, dat
 	defer cancel()
 	selectedColumns, selectedRemarks, err := selectModelTablesIndexedWithKeywords(selectionCtx, store, p, datasource, model,
 		question, keywords, columns, remarks, limit, alpha, keywordEnabled, validate)
-	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil &&
-		errors.Is(selectionCtx.Err(), context.DeadlineExceeded) {
+	// A gateway call inside the index validator can translate the local
+	// deadline into ErrGateway. The expired selection context, rather than
+	// that wrapped error, determines whether the foreground budget elapsed.
+	// Revalidate against the live parent context before using the authorized
+	// schema captured before inference; a real revocation still closes here.
+	if err != nil && ctx.Err() == nil && errors.Is(selectionCtx.Err(), context.DeadlineExceeded) {
 		if validate != nil {
 			if err := validate(ctx); err != nil {
 				return nil, nil, err

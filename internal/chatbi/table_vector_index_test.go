@@ -87,6 +87,44 @@ func TestForegroundColdIndexBudgetKeepsOnlyCurrentlyAuthorizedFullSchema(t *test
 	}
 }
 
+func TestForegroundIndexBudgetRechecksWrappedGatewayTimeout(t *testing.T) {
+	columns := []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "weather", Name: "forecast", DataType: "text"}}
+	for _, revoked := range []bool{false, true} {
+		t.Run(map[bool]string{false: "unchanged", true: "revoked"}[revoked], func(t *testing.T) {
+			store := testStore(t)
+			principal := Principal{Workspace: "1", User: User{ID: "1"}}
+			var checks atomic.Int32
+			validate := func(ctx context.Context) error {
+				checks.Add(1)
+				if _, hasDeadline := ctx.Deadline(); hasDeadline {
+					<-ctx.Done()
+					// A gateway can map request cancellation to its own
+					// authorization error before the selection sees it.
+					return ErrGateway
+				}
+				if revoked {
+					return ErrGateway
+				}
+				return nil
+			}
+			selected, _, err := selectModelTablesForAsk(context.Background(), store, principal, "10",
+				tableFixtureEmbedding{}, "weather forecast", "weather forecast", columns, nil,
+				1, 1, false, 20*time.Millisecond, validate)
+			if revoked {
+				if !errors.Is(err, ErrGateway) || len(selected) != 0 {
+					t.Fatalf("revocation hidden by wrapped deadline: selected=%v err=%v", selected, err)
+				}
+			} else if err != nil || len(selected) != len(columns) {
+				t.Fatalf("stable authorized schema was not restored: selected=%v err=%v", selected, err)
+			}
+			if checks.Load() < 2 {
+				t.Fatalf("expected timeout and current authorization checks, got %d", checks.Load())
+			}
+		})
+	}
+}
+
 func TestForegroundColdIndexBudgetUsesExplicitAuthorizedTable(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)
