@@ -70,7 +70,7 @@ agentsql chatbi configure --config /etc/agentsql/chatbi.yaml --from connections.
 
 配置与本地管理审计一起提交，凭据加密保存，下一次问数读取新配置。配置成功不等于真实查询成功；需要实际验证允许、拒绝、脱敏、审计和故障场景。当前使用每个工作空间一个默认模型，个人绑定通过命令行维护。
 
-`configure` 是增量写入；从 JSON 文件中删去一条绑定不会撤销已保存的绑定。撤销时先确认当前问数侧工作空间、用户、数据源 ID 和网关绑定 ID，然后运行：
+`configure` 可以新增个人绑定及更新模型等配置；对已有绑定只接受完全相同的重复提交，保持其修订号。任何字段变化都会拒绝，数据库目标或私有凭据变更须使用下文带实时网关预检的 `rotate-binding`；展示元信息和选表请用对应受权接口。这样重新运行旧配置文件不会覆盖已保存的选表和权限状态。从 JSON 文件中删去一条绑定不会撤销已保存的绑定。撤销时先确认当前问数侧工作空间、用户、数据源 ID 和网关绑定 ID，然后运行：
 
 ```sh
 agentsql chatbi revoke-binding --config /etc/agentsql/chatbi.yaml --workspace 1 --user 1 --datasource 10 --expected-binding-id REPLACE_WITH_GATEWAY_BINDING_ID

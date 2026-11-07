@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -179,6 +180,24 @@ func (s *Store) ConfigureConnections(ctx context.Context, config ConnectionConfi
 				entry.key.Scope, entry.key.Owner, entry.key.ID).Scan(&retired)
 			if err == nil {
 				return ErrConflict
+			}
+			if !controlNoRows(err) {
+				return ErrUnavailable
+			}
+			// Existing bindings may have accumulated table selection, field
+			// restrictions and permission metadata since their first import.
+			// Replaying an old configure file must never erase that state or
+			// replace private credentials without the gateway preflight and
+			// compare-and-swap performed by RotateBinding.
+			var currentBody []byte
+			err = tx.QueryRowContext(ctx, `SELECT body FROM chatbi_objects WHERE kind='binding' AND scope=? AND owner=? AND id=?`,
+				entry.key.Scope, entry.key.Owner, entry.key.ID).Scan(&currentBody)
+			if err == nil {
+				var current Binding
+				if s.decode(entry.key, currentBody, &current) != nil || !reflect.DeepEqual(current, stagedBindings[entry.key]) {
+					return ErrConflict
+				}
+				continue // An identical replay is harmless and keeps its revision.
 			}
 			if !controlNoRows(err) {
 				return ErrUnavailable

@@ -70,7 +70,7 @@ agentsql chatbi configure --config /etc/agentsql/chatbi.yaml --from connections.
 
 Configuration and its local management audit commit together. Credentials are encrypted, and the next question reads the updated configuration. Successful configuration does not prove live queries work; validate allowed, denied, masked, audited and failure cases. The current service uses one default model per workspace and manages personal bindings through the CLI.
 
-`configure` upserts entries; omitting a binding from the JSON file does not revoke a stored binding. Confirm the current Q&A workspace, user and datasource IDs and the gateway binding ID, then run:
+`configure` can add personal bindings and update models and other configuration. For an existing binding, only an identical replay is accepted without changing its revision. Any changed field is rejected: use the live gateway preflight in `rotate-binding` for a database target or private credential change, and the scoped authorized APIs for display metadata or table selection. This prevents an old configuration file from overwriting saved selection and permission state. Omitting a binding from the JSON file does not revoke it. Confirm the current Q&A workspace, user and datasource IDs and the gateway binding ID, then run:
 
 ```sh
 agentsql chatbi revoke-binding --config /etc/agentsql/chatbi.yaml --workspace 1 --user 1 --datasource 10 --expected-binding-id REPLACE_WITH_GATEWAY_BINDING_ID
