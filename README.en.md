@@ -38,9 +38,9 @@ External AI agent → AgentSQL MCP Server ┘
 | MCP Server security gateway | **Independently usable** | stdio, Streamable HTTP, and independent stateless HTTP; an Agent Key is not an administrator token, and each request follows current grants |
 | Basic assistant and Type 4 page embed | **Verified bounded path** | One-source basic guest assistant and specified page embed; origin, identity, and revocation controls remain in force |
 | SQLBot integration | **Optional fixed baseline** | A verified adapter can route specified SQLBot execution through AgentSQL MCP; no blanket zero-change integration claim |
-| Type 1 advanced assistant | **Verified bounded path** | Unmodified SQLBot Community v1.10.3 assistant SDK; an operator-registered third-party directory maps external IDs to currently authorized gateway aliases, and the isolated assistant listener exposes no management API; only release-note scenarios are supported |
+| Type 1 advanced assistant | **Inherited v4.7 bounds** | An operator-registered external directory maps users to currently authorized gateway aliases. The exact v4.8 signed package did not rerun this path, so its support claim is not expanded. |
 | Active data permissions | **Verified bounded shape** | Explicit current workspace users; built-in administrator/member role qualifiers; nonempty whitelist metadata never exempts row or column filters |
-| Broader compatibility | **Verified per entry** | Community UI/API, connector, and model combinations follow the release evidence matrix; arbitrary roles and direct original-policy DB migration remain unverified |
+| Broader compatibility | **Some read-only loading; other paths unverified** | Community management-page lists loading does not validate create/edit/import/export. Real cloud inference, arbitrary role expansion, and direct original-policy DB migration remain unverified. |
 
 Review generated SQL and business meaning before relying on a natural-language answer. v4.8.0 **has not been validated in the user's real business system**; it does not claim 100% compatibility or zero-change cutover. The [official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.8.0) identify the exact commit, acceptance cases, performance measurements, and limits. The public Demo's Q&A model is a **simulation**.
 
