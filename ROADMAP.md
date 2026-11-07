@@ -59,7 +59,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v4.5.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0)） | 独立受控问数与 MCP Server 安全网关、固定本地向量模型、已验原版 MCP/基本助手/页面嵌入路径和正式离线交付；支持边界见[发布说明](docs/release-notes-v4.5.0.md)，不宣称完整 SQLBot 社区版兼容。 |
 | v4.6.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0)） | 限定路径的 Type 1 高级助手与第三方目录接入；运营方登记、证书与来源绑定、当前受权别名映射及独立助手服务。验收边界见[正式发布说明](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0)与[设计合同](docs/v4.6.0-design.md)。 |
 | v4.7.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.7.0)） | 已验限定形态的内建角色限定明确用户集合、多用户及非空白名单元数据；白名单不豁免行列限制。精确范围和未测边界见[发布说明](https://github.com/cuipengdba/agentsql/releases/tag/v4.7.0)与[设计合同](docs/v4.7.0-design.md)。 |
-| v4.8.0 | 计划 | 原版社区版其余可用页面、API、数据库连接创建/编辑、云模型及广覆盖行为与生产规模性能；以逐项矩阵确认实际支持范围，不预先承诺 100% 兼容。 |
+| v4.8.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.8.0)） | 运维私有数据源绑定轮换及限定原版客户端路径复验；原版管理页的只读加载不代表全部操作兼容，云模型真实推理和生产规模 p95 未验证。范围见正式发布说明与[设计合同](docs/v4.8.0-design.md)。 |
 
 ## v3.1.0 设计与验收范围
 
