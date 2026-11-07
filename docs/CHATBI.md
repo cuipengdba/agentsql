@@ -78,6 +78,25 @@ agentsql chatbi revoke-binding --config /etc/agentsql/chatbi.yaml --workspace 1 
 
 命令只撤销这条本地问数映射，并将撤销与管理审计原子提交；旧会话再次访问该数据源时会被拒绝。绑定 ID 已轮换时，旧命令会拒绝执行。还需在网关单独撤销对应的人员绑定、令牌或数据源权限；命令输出的 `gateway_mapping_revoked: false` 明确表示它不会代替网关撤销。
 
+需要更换数据库连接或私有凭据时，先在受控网关创建并核对新的人员绑定与数据源权限，再准备仅运维终端可读的 `rotation.private.json`：
+
+```json
+{
+  "workspace": "1", "user": "1", "datasource": "10",
+  "expected_binding_id": "CURRENT_GATEWAY_BINDING_ID",
+  "binding_id": "NEW_GATEWAY_BINDING_ID",
+  "connector_token": "NEW_CONNECTOR_SECRET",
+  "agent_key": "NEW_AGENT_KEY",
+  "resolve_name": "sales"
+}
+```
+
+```sh
+agentsql chatbi rotate-binding --config /etc/agentsql/chatbi.yaml --from rotation.private.json
+```
+
+该命令先用新映射读取受权结构并检查当前行列权限，再以预期旧绑定 ID 和存储修订号比较写入本地加密映射及管理审计。旧请求在返回数据前复核映射修订号；轮换成功后须用实际问数、拒绝及审计复验，并在网关撤销旧绑定和旧令牌。命令不会创建或轮换网关侧连接，输出中的 `gateway_mapping_rotated: false` 表示这一边界。原版浏览器数据源表单只可编辑显示元数据，不能提交数据库凭据。
+
 ## v4.7.0 活动数据权限规则
 
 管理员先为每个目标成员建立当前工作空间及个人网关绑定，再从数据源字段 API 取得实时表、字段 ID。管理端的 `POST /api/v1/ds_permission/save` 接收原版形状的 `users`、`permissions` 和可选 `white_list_user`；启用时服务端用当前网关表结构预检每个行列规则。`user_list` 可明确列出多个成员，规则对每个列出成员执行。规则保存成功后，分别用成员身份测试字段枚举、受控问数和网关审计；不要只凭管理端的保存响应判断已授权。

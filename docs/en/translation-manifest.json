@@ -1209,7 +1209,7 @@
     {
       "source": "docs/CHATBI.md",
       "english": "docs/en/CHATBI.md",
-      "source_sha256": "db048498f571be17ef772157102cd32000d8caa82aa83a9b5681c185e64118e9"
+      "source_sha256": "298eb014d7cf371d91fa0c7504cc15fbc8767d3de753a761d881a0dc4e1ade90"
     },
     {
       "source": "docs/release-notes-v4.1.0.md",
@@ -1290,6 +1290,11 @@
       "source": "docs/v4.7.0-design.md",
       "english": "docs/en/v4.7.0-design.md",
       "source_sha256": "7dd28bf9b032f06e2e27b74a4b7a22507093f882656638eee8d269fb62c8d394"
+    },
+    {
+      "source": "docs/v4.8.0-design.md",
+      "english": "docs/en/v4.8.0-design.md",
+      "source_sha256": "447b13aace6c303497e17d8abd3e5a18bd1fa00d1e937b4eb5de87c2fdd9e1dc"
     }
   ]
 }

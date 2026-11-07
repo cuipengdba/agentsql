@@ -78,6 +78,25 @@ agentsql chatbi revoke-binding --config /etc/agentsql/chatbi.yaml --workspace 1 
 
 The command removes only this local Q&A mapping and commits the revocation and management audit atomically. Old conversations are denied when they access the datasource again. A stale command is rejected if the binding ID has rotated. Revoke the corresponding person binding, token or datasource grant separately in the gateway; `gateway_mapping_revoked: false` in the output makes that boundary explicit.
 
+To replace a database connection or private credentials, first create and verify the new person binding and datasource grant in the controlled gateway. Prepare `rotation.private.json` readable only by the operations terminal:
+
+```json
+{
+  "workspace": "1", "user": "1", "datasource": "10",
+  "expected_binding_id": "CURRENT_GATEWAY_BINDING_ID",
+  "binding_id": "NEW_GATEWAY_BINDING_ID",
+  "connector_token": "NEW_CONNECTOR_SECRET",
+  "agent_key": "NEW_AGENT_KEY",
+  "resolve_name": "sales"
+}
+```
+
+```sh
+agentsql chatbi rotate-binding --config /etc/agentsql/chatbi.yaml --from rotation.private.json
+```
+
+The command preflights the new mapping's authorized schema and current row and column permissions, then compares the expected old binding ID and store revision before atomically writing the encrypted local mapping and management audit. An in-flight request rechecks the binding revision before returning data. After rotation, repeat live allowed, denied and audit checks, then revoke the old gateway binding and token in the gateway. This command does not create or rotate a gateway connection; `gateway_mapping_rotated: false` states that boundary. The original browser datasource form edits display metadata only and cannot submit database credentials.
+
 ## v4.7.0 active data permission rules
 
 An administrator first grants each target member a current workspace membership and personal gateway binding, then obtains live table and field IDs from the datasource field API. `POST /api/v1/ds_permission/save` accepts the original shape with `users`, `permissions`, and optional `white_list_user`. Activation preflights every row and column rule against the current gateway schema. `user_list` may explicitly list multiple members; each listed member receives the rule. After saving, verify field discovery, controlled Q&A, and gateway audit under each member's identity. A successful management response alone is not proof of data access.

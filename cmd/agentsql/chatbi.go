@@ -223,6 +223,30 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	}}
 	configure.Flags().StringVar(&connections, "from", "", "private connection configuration JSON")
 	_ = configure.MarkFlagRequired("from")
+	var rotationPath string
+	rotateBinding := &cobra.Command{Use: "rotate-binding", Short: "Preflight and atomically rotate one private gateway binding", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		config, err := chatbi.LoadConfig(configuration)
+		if err != nil {
+			return err
+		}
+		rotation, err := chatbi.ReadBindingRotation(rotationPath)
+		if err != nil {
+			return err
+		}
+		service, err := chatbi.Assemble(cmd.Context(), config)
+		if err != nil {
+			return err
+		}
+		defer service.Store.Close()
+		if err := service.RotateBinding(cmd.Context(), rotation); err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
+			"rotated": true, "workspace": rotation.Workspace, "user": rotation.User,
+			"datasource": rotation.Datasource, "gateway_mapping_rotated": false})
+	}}
+	rotateBinding.Flags().StringVar(&rotationPath, "from", "", "private binding rotation JSON")
+	_ = rotateBinding.MarkFlagRequired("from")
 	var revokeWorkspace, revokeUser, revokeDatasource, revokeBindingID string
 	revokeBinding := &cobra.Command{Use: "revoke-binding", Short: "Revoke one current local ChatBI datasource mapping with an audited compare-and-swap", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		config, err := chatbi.LoadConfig(configuration)
@@ -285,7 +309,7 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	}}
 	historyImport.Flags().StringVar(&importHistoryPath, "from", "", "private metadata-only SQLBot history export")
 	_ = historyImport.MarkFlagRequired("from")
-	root.AddCommand(preflight, importCommand, initCommand, configure, revokeBinding, historyPreflight, historyImport, verifyModel, serve)
+	root.AddCommand(preflight, importCommand, initCommand, configure, rotateBinding, revokeBinding, historyPreflight, historyImport, verifyModel, serve)
 	return root
 }
 
