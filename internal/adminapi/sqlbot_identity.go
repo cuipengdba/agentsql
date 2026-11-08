@@ -6,10 +6,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/cuipengdba/agentsql/internal/audit"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rbac"
 	"github.com/cuipengdba/agentsql/internal/store"
@@ -172,6 +175,15 @@ func (handler *Handler) sqlbotResolve(writer http.ResponseWriter, request *http.
 	recorded, err := handler.deps.Runtime.ManagementAudit.Record(ctx, model.AuditLog{AgentID: &b.AgentID, DatasourceID: &b.DatasourceID,
 		Decision: string(model.DecisionAllow), Action: &action, ActorType: &actorType, ActorID: &principal.UserID, DetailsJSON: &encoded})
 	if err != nil {
+		var sinkErr *audit.SinkError
+		if errors.As(err, &sinkErr) {
+			handler.logger.Error().Str("audit_code", string(sinkErr.Code)).Str("audit_reason", sinkErr.Reason).
+				Msg("SQLBot delegation audit unavailable")
+		} else {
+			handler.logger.Error().Str("error_type", fmt.Sprintf("%T", err)).
+				Bool("deadline", errors.Is(err, context.DeadlineExceeded)).
+				Msg("SQLBot delegation audit unavailable")
+		}
 		handler.fail(writer, http.StatusServiceUnavailable, "audit unavailable")
 		return
 	}

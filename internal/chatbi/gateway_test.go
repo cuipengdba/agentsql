@@ -30,8 +30,11 @@ func TestGatewayResolveDistinguishesRevokedMappingFromAuditFailure(t *testing.T)
 	}
 	status = http.StatusServiceUnavailable
 	_, err = gateway.resolve(context.Background(), principal, binding)
-	if !errors.Is(err, ErrGateway) || errors.Is(err, ErrGatewaySourceDenied) {
+	if !errors.Is(err, ErrGateway) || !errors.Is(err, ErrGatewayIdentityUnavailable) || errors.Is(err, ErrGatewaySourceDenied) {
 		t.Fatalf("audit outage must remain a hard gateway failure: %v", err)
+	}
+	if got := tableIndexPrewarmFailureReason(err); got != "identity_unavailable" {
+		t.Fatalf("audit outage prewarm category = %q, want identity_unavailable", got)
 	}
 }
 

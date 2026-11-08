@@ -212,9 +212,15 @@ func WithFlusherExitedHook(value func(chainID string)) Option {
 	return func(options *groupCommitOptions) { options.flusherExitedHook = value }
 }
 
-// SQLiteGroupCommitOptions returns the smaller S5 SQLite queue limits.
+// SQLiteGroupCommitOptions returns the smaller S5 SQLite queue limits. The
+// attempt must outlive SQLite's five-second busy timeout: a shorter attempt
+// can cancel a write while SQLite is legitimately waiting for a transient
+// writer lock, producing a commit-unknown denial for identity issuance.
 func SQLiteGroupCommitOptions() []Option {
-	return []Option{WithQueueCapacity(1024), WithQueueMaxBytes(8 << 20)}
+	return []Option{
+		WithQueueCapacity(1024), WithQueueMaxBytes(8 << 20),
+		WithAttemptTimeout(6 * time.Second), WithRootTimeout(12 * time.Second),
+	}
 }
 
 type groupCommitResult struct {

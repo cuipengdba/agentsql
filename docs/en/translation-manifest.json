@@ -14,7 +14,7 @@
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "3ed5158f160a21933ad3959f087317861754763022c8a92463c9b3002e43e16b"
+      "source_sha256": "79b11141427b71c866d298d7e06c096b02aed6caef3dd75c50ced16b5ff6444d"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -1295,6 +1295,16 @@
       "source": "docs/v4.8.0-design.md",
       "english": "docs/en/v4.8.0-design.md",
       "source_sha256": "dc31ed4a14c4b5c4acc1c1afd1d0593faff9c991989dc146a298abada172e7d1"
+    },
+    {
+      "source": "docs/v4.9.0-design.md",
+      "english": "docs/en/v4.9.0-design.md",
+      "source_sha256": "1ca5667b0b72f93dea790c8cbde8b105e198596eb8bb00ef77ec44bb7c6654e1"
+    },
+    {
+      "source": "docs/sqlbot-community-chatbi-score-v1103.md",
+      "english": "docs/en/sqlbot-community-chatbi-score-v1103.md",
+      "source_sha256": "0ff47dd5c5c18a0ed013f97413f52c45658dfa554278999611ef164513c788f5"
     }
   ]
 }
