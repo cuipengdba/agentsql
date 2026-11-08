@@ -1,6 +1,6 @@
 # SQLBot Community v1.10.3 data-question workflow score contract
 
-> Fixed comparison matrix from v4.9.0 onward. It has not been scored against the final signed candidate. The previous approximate 60% was a rough engineering estimate over 13 feature groups and cannot be converted to a pass rate here.
+> Fixed comparison matrix from v4.9.0 onward. The exact v4.9.0 signed package strictly passed 2/25 scenarios. The previous approximate 60% was a rough engineering estimate over 13 feature groups and cannot be converted to a pass rate here. Each later version needs fresh scenario acceptance.
 
 This matrix measures workflows that actually work in the pinned official SQLBot Community v1.10.3 release. It excludes X-Pack, unavailable Community routes, and unrelated administration; it also does not measure AgentSQL's independent database security gateway depth. There are 25 equally weighted scenarios worth four points each. Only a complete pass earns four points. Coverage is passed scenarios divided by 25, so 80% requires at least 20 passes. The denominator is frozen for this baseline; a newer upstream release needs a separate matrix.
 

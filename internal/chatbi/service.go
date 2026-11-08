@@ -873,6 +873,8 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		if err != nil {
 			return err
 		}
+		authorizedColumns := columns
+		authorizedRemarks := remarks
 		semanticQuery := question
 		if settings.Embedding.TableEnabled && service.Embedding != nil {
 			keywords := question
@@ -909,8 +911,6 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 			// Local inference may take minutes on a large authorized schema. A
 			// revocation during a batch must discard its vectors before they are
 			// written to the user-scoped index, not merely before SQL execution.
-			authorizedColumns := columns
-			authorizedRemarks := remarks
 			validateTableIndexSnapshot := service.tableIndexValidator(p, binding, bindingRevision, bindingDigest,
 				permissionSnapshot, authorizedColumns, authorizedRemarks, model, modelLease, fingerprint, check)
 			columns, remarks, err = selectModelTablesForAsk(ctx, service.Store, p, chat.Datasource, service.Embedding, question, keywords, columns, remarks,
@@ -925,6 +925,8 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 				return err
 			}
 		}
+		columns, remarks = includeVisibleHistoryTables(binding.Dialect, authorizedColumns, authorizedRemarks, columns, remarks, history)
+		columns, remarks = focusReferentialFollowup(binding.Dialect, question, authorizedColumns, columns, remarks, history)
 		history = visibleHistoryForModel(binding.Dialect, columns, history)
 		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
 			return err
@@ -971,6 +973,10 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		} else {
 			generated, err = service.Model.Generate(ctx, model, binding.Dialect, question, columns)
 		}
+		if err != nil {
+			return err
+		}
+		generated.SQL, err = preserveReferentialWhere(binding.Dialect, question, history, generated.SQL)
 		if err != nil {
 			return err
 		}
