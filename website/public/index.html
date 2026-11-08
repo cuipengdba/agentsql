@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AgentSQL（智盾）｜独立 AI 问数 Agent + MCP Server 安全网关</title>
-  <meta name="description" content="AgentSQL 是独立 AI 问数 Agent 与 MCP Server 数据库安全网关二合一产品：自有问数无需 SQLBot，也可经适配器保护 SQLBot 的数据库执行。支持范围见 v4.8.1 发布说明。">
+  <meta name="description" content="AgentSQL 是独立 AI 问数 Agent 与 MCP Server 数据库安全网关二合一产品：自有问数无需 SQLBot，也可经适配器保护 SQLBot 的数据库执行。支持范围见 v4.9.0 发布说明。">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://agentsql.cn/">
   <link rel="alternate" hreflang="zh-CN" href="https://agentsql.cn/">
@@ -14,7 +14,7 @@
   <meta property="og:site_name" content="AgentSQL">
   <meta property="og:locale" content="zh_CN">
   <meta property="og:title" content="AgentSQL · AI 问数 Agent + MCP Server 安全网关">
-  <meta property="og:description" content="AgentSQL 自有 AI 问数 Agent 与 MCP Server 安全网关共用授权、脱敏和审计；SQLBot 可选经适配器接入。范围以 v4.8.1 发布说明为准。">
+  <meta property="og:description" content="AgentSQL 自有 AI 问数 Agent 与 MCP Server 安全网关共用授权、脱敏和审计；SQLBot 可选经适配器接入。范围以 v4.9.0 发布说明为准。">
   <meta property="og:url" content="https://agentsql.cn/">
   <meta property="og:image" content="https://agentsql.cn/assets/og-cover.png?v=3.6.0">
   <meta property="og:image:alt" content="AgentSQL（智盾）：AI 问数 Agent 与 MCP Server 安全网关">
@@ -22,7 +22,7 @@
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="AgentSQL · AI 问数 Agent + MCP Server 安全网关">
-  <meta name="twitter:description" content="AgentSQL 自有 AI 问数 Agent 与 MCP Server 安全网关共用授权、脱敏和审计；SQLBot 可选经适配器接入。范围以 v4.8.1 发布说明为准。">
+  <meta name="twitter:description" content="AgentSQL 自有 AI 问数 Agent 与 MCP Server 安全网关共用授权、脱敏和审计；SQLBot 可选经适配器接入。范围以 v4.9.0 发布说明为准。">
   <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover.png?v=3.6.0">
   <meta name="twitter:image:alt" content="AgentSQL（智盾）：AI 问数 Agent 与 MCP Server 安全网关">
   <link rel="icon" href="/favicon.svg?v=3.6.0" type="image/svg+xml">
@@ -67,14 +67,14 @@
     <section id="top" class="hero section">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v4.8.1</div>
+          <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v4.9.0</div>
           <h1>独立 AI 问数 Agent<br>MCP Server 安全网关</h1>
           <p class="hero-lead">AgentSQL（智盾）把自有 AI 问数 Agent 和独立 MCP Server 数据库安全网关合在同一产品中。直接用 AgentSQL 提问，或让外部 MCP Client 接入；两条入口的数据库请求都经过当前身份与授权、SQL 检查、受控执行、结果脱敏和持久审计。</p>
-          <p class="positioning">自有 Go 问数服务和 Web 页面不需要 SQLBot 运行。SQLBot 的数据库调用可选经固定版本适配器接入 AgentSQL 安全网关；这不表示任意 SQLBot 部署即插即用。v4.8.1 只承诺发布说明列明的有限路径，尚未在用户真实业务系统验证。</p>
+          <p class="positioning">自有 Go 问数服务和 Web 页面不需要 SQLBot 运行。SQLBot 的数据库调用可选经固定版本适配器接入 AgentSQL 安全网关；这不表示任意 SQLBot 部署即插即用。v4.9.0 只承诺发布说明列明的有限路径，尚未在用户真实业务系统验证。</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">在 GitHub 查看</a>
             <a class="button button-secondary" href="#quickstart">快速开始</a>
-            <a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/releases/tag/v4.8.1" target="_blank" rel="noopener noreferrer">v4.8.1 发布说明</a>
+            <a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/releases/tag/v4.9.0" target="_blank" rel="noopener noreferrer">v4.9.0 发布说明</a>
           </div>
           <p class="badge-line">v0.5.0 起 Apache-2.0 开源 · Go 单二进制交付（glibc / cgo 构建）· 自托管 · 无第三方遥测依赖</p>
           <p class="positioning">问数由 AgentSQL 自己理解问题、选择当前受权结构并生成 SQL；安全内核决定能否执行和交付结果。</p>
@@ -113,7 +113,7 @@
 
     <section id="native-qa" class="section section-muted" aria-labelledby="native-qa-title">
       <div class="container">
-        <div class="section-heading"><p class="kicker">AgentSQL 自有问数</p><h2 id="native-qa-title">从自然语言到受控结果，问数链路由 AgentSQL 自己完成</h2><p>问数 Agent 负责理解问题和生成候选 SQL；安全网关负责最终执行许可。v4.8.1 的真模型、真 PostgreSQL 验收仅覆盖发布说明列明的路径。</p></div>
+        <div class="section-heading"><p class="kicker">AgentSQL 自有问数</p><h2 id="native-qa-title">从自然语言到受控结果，问数链路由 AgentSQL 自己完成</h2><p>问数 Agent 负责理解问题和生成候选 SQL；安全网关负责最终执行许可。v4.9.0 的真模型、真 PostgreSQL 验收仅覆盖发布说明列明的路径。</p></div>
         <div class="feature-grid qa-steps">
           <article class="feature-card"><span class="risk-index">01</span><h3>识别当前身份</h3><p>根据用户、工作空间与数据源绑定，选取当前允许的表、列和业务术语；旧会话不自动继承旧权限。</p></article>
           <article class="feature-card"><span class="risk-index">02</span><h3>模型生成候选 SQL</h3><p>由配置的模型在受权结构内理解问题、生成 SQL；本地固定 ONNX 模型帮助筛选表结构。模型回答仍需核对业务含义。</p></article>
@@ -138,12 +138,13 @@
 
     <section id="capabilities" class="section" aria-labelledby="capabilities-title">
       <div class="container">
-        <div class="section-heading"><p class="kicker">当前能力</p><h2 id="capabilities-title">能力矩阵，而非逐版功能清单</h2><p>状态描述 v4.8.1 的已验路径与边界；本补丁修复 128 张受权表并发问数的索引预算回退，性能样本不是生产 SLA。具体部署以发布说明和接入指南为准。</p></div>
+        <div class="section-heading"><p class="kicker">当前能力</p><h2 id="capabilities-title">能力矩阵，而非逐版功能清单</h2><p>状态描述 v4.9.0 的已验路径与边界。本版改善短暂审计写锁下的身份签发，补充预热失败类别；128 张受权表热态问数的隔离测试 p95 为 28.83 秒，不是生产 SLA。具体部署以发布说明和接入指南为准。</p></div>
         <div class="table-wrap"><table class="compat-table">
-          <caption>AgentSQL v4.8.1 的二合一产品能力及已验范围</caption>
+          <caption>AgentSQL v4.9.0 的二合一产品能力及已验范围</caption>
           <thead><tr><th scope="col">能力</th><th scope="col">状态</th><th scope="col">使用边界</th></tr></thead>
           <tbody>
             <tr><td>独立 AI 问数 Agent</td><td>已验限定路径</td><td>自有 Go/Web 问数；本地模型和运营方登记的 PostgreSQL 网关别名，无 SQLBot 运行依赖</td></tr>
+            <tr><td>受权向量索引预热</td><td>已验限定负载</td><td>128 张受权合成表的三次冷态构建与热态 20 问；授权变化仍需重新核对，性能样本不构成生产承诺</td></tr>
             <tr><td>私有数据源绑定轮换</td><td>已验限定路径</td><td>运维侧预检新网关绑定与当前授权，以旧绑定 ID 和修订号比较提交；浏览器不可改目标和凭据</td></tr>
             <tr><td>MCP Server 安全网关</td><td>可独立部署</td><td>stdio 与 HTTP MCP；当前身份、授权、受控执行、脱敏和持久审计逐次生效</td></tr>
             <tr><td>SQLBot 接入</td><td>可选固定基线</td><td>经已验适配器调用 AgentSQL MCP；不等于任意 SQLBot 环境自动兼容</td></tr>
@@ -253,15 +254,15 @@
           <article class="feature-card"><span class="risk-index">03</span><h3>MCP 接入指南</h3><p>对照客户端能力选择现有 <code>/mcp</code>、独立无状态 <code>/mcp/2026-07-28</code> 或 stdio，查看工具与拒绝边界。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/INTEGRATIONS.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-mcp-integrations-v4.6.0.pdf" download="AgentSQL-MCP接入指南-v4.6.0.pdf" aria-label="下载《MCP 接入指南》PDF">PDF 下载</a></div></article>
         </div>
         <div class="license-panel callout">
-          <div class="docs-callout-copy"><h3>更多资料</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener noreferrer">部署指南</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/OPERATIONS.md" target="_blank" rel="noopener noreferrer">当前运维手册</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v4.0.0-delivery.md" target="_blank" rel="noopener noreferrer">离线交付指南</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/SQLBOT.md" target="_blank" rel="noopener noreferrer">SQLBot 接入</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v4.6.0-design.md#生产部署边界" target="_blank" rel="noopener noreferrer">Type 1 高级助手部署</a> · <a href="/demo/">在线演示说明</a></p><p>v4.8.1 提供 Linux amd64 / arm64 安装包与多架构镜像；Live Demo 入口仅使用合成数据。</p><h4>GHCR 多架构拉取（自动匹配 amd64 / arm64）</h4><pre class="install-command"><code>docker pull ghcr.io/cuipengdba/agentsql:v4.8.1</code></pre><h4>一键安装（Linux amd64 / arm64）</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.8.1/install.sh | sudo sh -s -- install --version v4.8.1</code></pre><p class="install-conditions">v0.4.0 起提供 linux/arm64 原生 glibc 包 · x86_64 / amd64 或 aarch64 / arm64 · glibc ≥ 2.28 · systemd · 需要 sudo/root</p></div>
-          <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases/tag/v4.8.1" target="_blank" rel="noopener noreferrer">GitHub Release（v4.8.1）</a></div>
+          <div class="docs-callout-copy"><h3>更多资料</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener noreferrer">部署指南</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/OPERATIONS.md" target="_blank" rel="noopener noreferrer">当前运维手册</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v4.0.0-delivery.md" target="_blank" rel="noopener noreferrer">离线交付指南</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/SQLBOT.md" target="_blank" rel="noopener noreferrer">SQLBot 接入</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v4.6.0-design.md#生产部署边界" target="_blank" rel="noopener noreferrer">Type 1 高级助手部署</a> · <a href="/demo/">在线演示说明</a></p><p>v4.9.0 提供 Linux amd64 / arm64 安装包与多架构镜像；Live Demo 入口仅使用合成数据。</p><h4>GHCR 多架构拉取（自动匹配 amd64 / arm64）</h4><pre class="install-command"><code>docker pull ghcr.io/cuipengdba/agentsql:v4.9.0</code></pre><h4>一键安装（Linux amd64 / arm64）</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.9.0/install.sh | sudo sh -s -- install --version v4.9.0</code></pre><p class="install-conditions">v0.4.0 起提供 linux/arm64 原生 glibc 包 · x86_64 / amd64 或 aarch64 / arm64 · glibc ≥ 2.28 · systemd · 需要 sudo/root</p></div>
+          <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases/tag/v4.9.0" target="_blank" rel="noopener noreferrer">GitHub Release（v4.9.0）</a></div>
         </div>
       </div>
     </section>
 
     <section id="compatibility" class="section section-muted">
       <div class="container">
-        <div class="section-heading"><p class="kicker">兼容性</p><h2>数据库兼容矩阵</h2><p>此矩阵汇总截至 v4.8.1 的已核验范围。注册、协议连接、受控只读与完整防护是不同等级；实际支持受指定版本、拓扑和验收证据限制。</p></div>
+        <div class="section-heading"><p class="kicker">兼容性</p><h2>数据库兼容矩阵</h2><p>此矩阵汇总截至 v4.9.0 的已核验范围。注册、协议连接、受控只读与完整防护是不同等级；实际支持受指定版本、拓扑和验收证据限制。</p></div>
         <div class="compat-summary"><strong>8 大类 / 30 款已注册</strong><span>openGauss 与瀚高 HighGo 已计入；另列金仓 KingbaseES V9 的指定实例 PG 协议验证</span></div>
         <div class="table-wrap">
           <table class="compat-table">
@@ -323,11 +324,11 @@
         <div class="section-heading"><p class="kicker">开始使用</p><h2>快速开始</h2><p>在 Docker 与依赖网络已就绪时通常数分钟可完成（受网络环境影响）。GHCR tag 会自动匹配 linux/amd64 或 linux/arm64；源码路径仍以仓库 README 为准。</p></div>
         <div class="quick-grid">
           <article class="terminal-card"><div class="terminal-head"><span>GHCR</span><span>amd64 / arm64</span></div><pre><code><span class="comment"># Docker 自动选择当前平台镜像</span>
-docker pull ghcr.io/cuipengdba/agentsql:v4.8.1
+docker pull ghcr.io/cuipengdba/agentsql:v4.9.0
 
 <span class="comment"># 推荐使用仓库 quickstart 生成凭据并启动</span>
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.8.1/scripts/quickstart.sh -o quickstart.sh
-sh quickstart.sh --version v4.8.1</code></pre><div class="terminal-foot">默认仅绑定 <code>127.0.0.1:7780</code></div></article>
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.9.0/scripts/quickstart.sh -o quickstart.sh
+sh quickstart.sh --version v4.9.0</code></pre><div class="terminal-foot">默认仅绑定 <code>127.0.0.1:7780</code></div></article>
           <article class="terminal-card"><div class="terminal-head"><span>Live Demo</span><span>合成数据</span></div><pre><code><span class="comment"># 复制演示环境样例并替换占位凭据</span>
 cp examples/docker/demo.env.example demo/demo.env
 
@@ -362,7 +363,7 @@ bash ./demo/reset.sh
 
     <section id="roadmap" class="section" aria-labelledby="roadmap-title">
       <div class="container">
-        <div class="section-heading"><p class="kicker">后续范围</p><h2 id="roadmap-title">按能力推进，不在首页重复历史版本</h2><p>已发布的详细变更与验收保留在 <a href="https://github.com/cuipengdba/agentsql/releases" target="_blank" rel="noopener noreferrer">GitHub Releases</a>；当前支持边界以上方能力矩阵和 v4.8.1 发布说明为准。</p></div>
+        <div class="section-heading"><p class="kicker">后续范围</p><h2 id="roadmap-title">按能力推进，不在首页重复历史版本</h2><p>已发布的详细变更与验收保留在 <a href="https://github.com/cuipengdba/agentsql/releases" target="_blank" rel="noopener noreferrer">GitHub Releases</a>；当前支持边界以上方能力矩阵和 v4.9.0 发布说明为准。</p></div>
         <ol class="roadmap">
           <li><span>后续验收</span><strong>社区版页面/API、连接与模型组合继续逐入口验证</strong></li>
         </ol>
@@ -382,7 +383,7 @@ bash ./demo/reset.sh
         <div class="faq-list">
           <details><summary>它和 MCP 是什么关系？</summary><p>它本身是一个 MCP Server；MCP 是模型与外部工具 / 数据通信的标准协议。</p></details>
           <details><summary>不用 MCP，模型就不能连数据库吗？</summary><p>可以，应用也可用自研 API、数据库代理或服务端托管凭据连接；AgentSQL 提供的是面向 MCP 的统一身份、策略、受控执行与审计入口，而非唯一连接方式。</p></details>
-          <details><summary>AgentSQL 问数与 SQLBot 是什么关系？</summary><p>AgentSQL 自有 Go 问数 Agent、Web 页面与模型编排，不需要 SQLBot 运行。SQLBot 是可选接入方，可经已验适配器把数据库执行交给 AgentSQL MCP 安全网关；这不意味着所有 SQLBot 功能自动兼容。详细边界见 v4.8.1 发布说明。</p></details>
+          <details><summary>AgentSQL 问数与 SQLBot 是什么关系？</summary><p>AgentSQL 自有 Go 问数 Agent、Web 页面与模型编排，不需要 SQLBot 运行。SQLBot 是可选接入方，可经已验适配器把数据库执行交给 AgentSQL MCP 安全网关；这不意味着所有 SQLBot 功能自动兼容。详细边界见 v4.9.0 发布说明。</p></details>
           <details><summary>性能如何？</summary><p>静态判定在毫秒级；在内存 fake executor、20 worker / 20 万样本、剥离真实库网络与执行时间的基准中，网关 CPU 路径 P99 约 1.81 ms，该数字不是端到端查询延迟，真实延迟取决于连接、EXPLAIN、数据库执行与审计存储。</p></details>
           <details><summary>个人 / 公司能使用吗？</summary><p>当前版本按 Apache-2.0 发布。请阅读仓库中的 LICENSE 和 NOTICE，确认使用、修改与分发条件。</p></details>
           <details><summary>支持哪些数据库 / 客户端？</summary><p>请查看上方<a href="#compatibility">兼容矩阵</a>，其中列出业务库、控制面、MCP 传输、宿主与部署范围。</p></details>
