@@ -198,6 +198,58 @@ func RewriteSingleTable(rawSQL, schema, table string, filters []string) (string,
 	return rewritten, hex.EncodeToString(digest[:]), nil
 }
 
+// CarrySingleTableWhere keeps a completed turn's simple predicate on a
+// referential follow-up. It is conversational grounding, never authorization:
+// callers must recheck the old SQL against the current visible schema and send
+// the rewritten SQL through the normal controlled gateway. Unsupported shapes
+// close instead of silently widening the follow-up to the whole table.
+func CarrySingleTableWhere(previousSQL, generatedSQL string) (string, error) {
+	previous, err := pg_query.Parse(previousSQL)
+	if err != nil || len(previous.GetStmts()) != 1 {
+		return "", ErrUnsupported
+	}
+	current, err := pg_query.Parse(generatedSQL)
+	if err != nil || len(current.GetStmts()) != 1 {
+		return "", ErrUnsupported
+	}
+	previousSelect := previous.Stmts[0].Stmt.GetSelectStmt()
+	currentSelect := current.Stmts[0].Stmt.GetSelectStmt()
+	if !simpleSingleTableSelect(previousSelect) || !simpleSingleTableSelect(currentSelect) ||
+		previousSelect.WhereClause == nil || !validPredicate(previousSelect.WhereClause, 0) {
+		return "", ErrUnsupported
+	}
+	previousRelation := previousSelect.FromClause[0].GetRangeVar()
+	currentRelation := currentSelect.FromClause[0].GetRangeVar()
+	if previousRelation.Schemaname != currentRelation.Schemaname ||
+		previousRelation.Relname != currentRelation.Relname {
+		return "", ErrUnsupported
+	}
+	if currentSelect.WhereClause == nil {
+		currentSelect.WhereClause = previousSelect.WhereClause
+	} else {
+		currentSelect.WhereClause = &pg_query.Node{Node: &pg_query.Node_BoolExpr{BoolExpr: &pg_query.BoolExpr{
+			Boolop: pg_query.BoolExprType_AND_EXPR,
+			Args:   []*pg_query.Node{currentSelect.WhereClause, previousSelect.WhereClause},
+		}}}
+	}
+	rewritten, err := pg_query.Deparse(current)
+	if err != nil {
+		return "", ErrUnsupported
+	}
+	return rewritten, nil
+}
+
+func simpleSingleTableSelect(root *pg_query.SelectStmt) bool {
+	if root == nil || root.WithClause != nil || root.IntoClause != nil || root.Larg != nil || root.Rarg != nil ||
+		root.Op != pg_query.SetOperation_SETOP_NONE || len(root.LockingClause) != 0 || len(root.FromClause) != 1 ||
+		countSelectStatements(root.ProtoReflect()) != 1 {
+		return false
+	}
+	relation := root.FromClause[0].GetRangeVar()
+	return relation != nil && relation.Catalogname == "" && relation.Schemaname != "" &&
+		relation.Relname != "" && relation.Alias == nil
+}
+
 func countSelectStatements(message protoreflect.Message) int {
 	count := 0
 	if _, ok := message.Interface().(*pg_query.SelectStmt); ok {

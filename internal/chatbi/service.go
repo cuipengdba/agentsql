@@ -976,6 +976,10 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		if err != nil {
 			return err
 		}
+		generated.SQL, err = preserveReferentialWhere(binding.Dialect, question, history, generated.SQL)
+		if err != nil {
+			return err
+		}
 		// A model can miss one character in a newly imported table name. Reject
 		// that SQL before it reaches the gateway; never guess or repair a target.
 		if err := validateGeneratedManagedFileSQL(binding, columns, generated.SQL); err != nil {

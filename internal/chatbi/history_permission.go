@@ -5,6 +5,7 @@ import (
 
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/parser"
+	"github.com/cuipengdba/agentsql/internal/rowfilter"
 )
 
 // Prior SQL is model context, not an authorization source. Recheck every
@@ -99,17 +100,10 @@ func includeVisibleHistoryTables(dialect string, authorized []Column, remarks []
 // reference to another authorized table keeps normal multi-table selection.
 func focusReferentialFollowup(dialect, question string, authorized, selected []Column,
 	remarks []RemarkHint, history []TurnContext) ([]Column, []RemarkHint) {
-	q := strings.ToLower(strings.TrimSpace(question))
-	referential := false
-	for _, prefix := range []string{"这些", "那些", "其中", "这批", "上述", "它们", "these ", "those ", "their ", "among them", "of them"} {
-		if strings.HasPrefix(q, prefix) {
-			referential = true
-			break
-		}
-	}
-	if !referential || len(history) == 0 {
+	if !isReferentialFollowup(question) || len(history) == 0 {
 		return selected, remarks
 	}
+	q := strings.ToLower(strings.TrimSpace(question))
 	var dbDialect model.DBDialect
 	switch dialect {
 	case "pg":
@@ -155,4 +149,46 @@ func focusReferentialFollowup(dialect, question string, authorized, selected []C
 		}
 	}
 	return focused, focusedRemarks
+}
+
+func isReferentialFollowup(question string) bool {
+	q := strings.ToLower(strings.TrimSpace(question))
+	for _, prefix := range []string{"这些", "那些", "其中", "这批", "上述", "它们", "these ", "those ", "their ", "among them", "of them"} {
+		if strings.HasPrefix(q, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// Preserve the last turn's simple PostgreSQL filter only for an unambiguous
+// reference to that result. The caller has already removed history that is no
+// longer visible under the live schema. The gateway reauthorizes the result.
+func preserveReferentialWhere(dialect, question string, history []TurnContext, sql string) (string, error) {
+	if dialect != "pg" || !isReferentialFollowup(question) || len(history) == 0 {
+		return sql, nil
+	}
+	q := strings.ToLower(question)
+	for _, change := range []string{" where ", " only ", " except ", " instead ", " rather than ", "只看", "仅看", "改成", "改为", "换成", "除了", "除外", "不含", "其他", "另外"} {
+		if strings.Contains(q, change) {
+			return sql, nil
+		}
+	}
+	previous := history[len(history)-1].SQL
+	approved, err := parser.NewParser(model.DialectPostgres)
+	if err != nil {
+		return "", ErrModel
+	}
+	ast, err := approved.Parse(previous)
+	if err != nil {
+		return "", ErrModel
+	}
+	if !ast.HasWhere {
+		return sql, nil
+	}
+	rewritten, err := rowfilter.CarrySingleTableWhere(previous, sql)
+	if err != nil {
+		return "", ErrModel
+	}
+	return rewritten, nil
 }
