@@ -33,6 +33,55 @@ func TestCombinedSQLiteAssemblyUsesGroupCommitForManagementRecorder(t *testing.T
 	require.Error(t, runtime.Store.Ping(ctx), "store must close only after the sink flusher exits")
 }
 
+func TestCombinedSQLiteAuditWaitsForShortWriterLockWithoutIssuingUnauditedResult(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "writer-lock.db")
+	runtime, err := Assemble(ctx, bootstrapTestConfig(path), bootstrapTestSecret)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	runtime.ChainMonitor.close()
+
+	locker, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, locker.Close()) })
+	connection, err := locker.Conn(ctx)
+	require.NoError(t, err)
+	defer connection.Close()
+	defer connection.ExecContext(context.Background(), "ROLLBACK")
+	_, err = connection.ExecContext(ctx, "BEGIN IMMEDIATE")
+	require.NoError(t, err)
+
+	result := make(chan struct {
+		row model.AuditLog
+		err error
+	}, 1)
+	go func() {
+		issued, recordErr := runtime.ManagementAudit.Record(ctx, model.AuditLog{Decision: "allow"})
+		result <- struct {
+			row model.AuditLog
+			err error
+		}{issued, recordErr}
+	}()
+	// The old two-second group-commit attempt expired before SQLite's own
+	// five-second writer timeout. A transient lock released in this window
+	// must leave the synchronous audit barrier intact.
+	time.Sleep(2500 * time.Millisecond)
+	select {
+	case completed := <-result:
+		t.Fatalf("audit completed while the writer lock was held: row=%d err=%v", completed.row.ID, completed.err)
+	default:
+	}
+	_, err = connection.ExecContext(ctx, "COMMIT")
+	require.NoError(t, err)
+	select {
+	case completed := <-result:
+		require.NoError(t, completed.err)
+		require.Positive(t, completed.row.ID)
+	case <-time.After(6 * time.Second):
+		t.Fatal("audit did not recover after the writer lock was released")
+	}
+}
+
 func exerciseCombinedGroupCommit(
 	t *testing.T,
 	ctx context.Context,

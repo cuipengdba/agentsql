@@ -107,6 +107,9 @@ func TestRevocationDuringPrewarmDiscardsOldVectors(t *testing.T) {
 	gateway.columns[0].Name = "renamed_amount"
 	close(embedding.release)
 	waitTableIndexPrewarm(t, service, principal, "10", "failed")
+	if got := service.TableIndexPrewarmStatus(principal, "10").Reason; got != "snapshot_recheck_failed" {
+		t.Fatalf("prewarm failure category = %q, want snapshot_recheck_failed", got)
+	}
 	if embedding.tableCalls.Load() != 1 {
 		t.Fatalf("duplicate prewarm rebuilt index %d times", embedding.tableCalls.Load())
 	}
@@ -145,8 +148,8 @@ func TestPrewarmShutdownCancelsInferenceBeforeStorage(t *testing.T) {
 	}
 	cancel()
 	stop()
-	if got := service.TableIndexPrewarmStatus(principal, "10").State; got != "cancelled" {
-		t.Fatalf("shutdown left a live job: %s", got)
+	if status := service.TableIndexPrewarmStatus(principal, "10"); status.State != "cancelled" || status.Reason != "cancelled" {
+		t.Fatalf("shutdown left a live job: %+v", status)
 	}
 	var persisted int
 	if err := service.Store.db.QueryRowContext(context.Background(),

@@ -15,6 +15,7 @@ type tableIndexPrewarmKey struct {
 
 type tableIndexPrewarmStatus struct {
 	State   string    `json:"state"`
+	Reason  string    `json:"reason,omitempty"`
 	Updated time.Time `json:"updated_at"`
 }
 
@@ -102,7 +103,7 @@ func (service *Service) QueueTableIndexPrewarm(p Principal, datasource ID,
 		worker.status[key] = tableIndexPrewarmStatus{State: "queued", Updated: time.Now().UTC()}
 		return true
 	default:
-		worker.status[key] = tableIndexPrewarmStatus{State: "failed", Updated: time.Now().UTC()}
+		worker.status[key] = tableIndexPrewarmStatus{State: "failed", Reason: "queue_full", Updated: time.Now().UTC()}
 		return false
 	}
 }
@@ -120,10 +121,37 @@ func (service *Service) TableIndexPrewarmStatus(p Principal, datasource ID) tabl
 	return tableIndexPrewarmStatus{State: "idle"}
 }
 
-func (worker *tableIndexPrewarmer) setStatus(key tableIndexPrewarmKey, state string) {
+func (worker *tableIndexPrewarmer) setStatus(key tableIndexPrewarmKey, state, reason string) {
 	worker.mu.Lock()
-	worker.status[key] = tableIndexPrewarmStatus{State: state, Updated: time.Now().UTC()}
+	worker.status[key] = tableIndexPrewarmStatus{State: state, Reason: reason, Updated: time.Now().UTC()}
 	worker.mu.Unlock()
+}
+
+// The status endpoint exposes only stable failure classes. In particular it
+// must never return model input, schema names, gateway errors or credentials.
+func tableIndexPrewarmFailureReason(err error) string {
+	if errors.Is(err, context.Canceled) {
+		return "cancelled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	var validationErr tableIndexAuthorizationError
+	if errors.As(err, &validationErr) {
+		return "snapshot_recheck_failed"
+	}
+	switch {
+	case errors.Is(err, ErrUnauthenticated):
+		return "identity_unavailable"
+	case errors.Is(err, ErrGatewayIdentityUnavailable):
+		return "identity_unavailable"
+	case errors.Is(err, ErrModel):
+		return "model_unavailable"
+	case errors.Is(err, ErrGateway), errors.Is(err, ErrUnavailable):
+		return "dependency_unavailable"
+	default:
+		return "internal_error"
+	}
 }
 
 func (worker *tableIndexPrewarmer) run() {
@@ -134,28 +162,30 @@ func (worker *tableIndexPrewarmer) run() {
 			worker.mu.Lock()
 			for key, status := range worker.status {
 				if status.State == "queued" || status.State == "running" {
-					worker.status[key] = tableIndexPrewarmStatus{State: "cancelled", Updated: time.Now().UTC()}
+					worker.status[key] = tableIndexPrewarmStatus{State: "cancelled", Reason: "cancelled", Updated: time.Now().UTC()}
 				}
 			}
 			worker.mu.Unlock()
 			return
 		case job := <-worker.jobs:
 			if worker.ctx.Err() != nil {
-				worker.setStatus(job.key, "cancelled")
+				worker.setStatus(job.key, "cancelled", "cancelled")
 				continue
 			}
-			worker.setStatus(job.key, "running")
+			worker.setStatus(job.key, "running", "")
 			ctx, cancel := context.WithTimeout(worker.ctx, 5*time.Minute)
 			err := worker.service.prewarmAuthorizedTableIndex(ctx, job.principal, job.key.datasource, job.check)
 			cancel()
 			state := "ready"
+			reason := ""
 			if err != nil {
 				state = "failed"
+				reason = tableIndexPrewarmFailureReason(err)
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					state = "cancelled"
 				}
 			}
-			worker.setStatus(job.key, state)
+			worker.setStatus(job.key, state, reason)
 		}
 	}
 }
