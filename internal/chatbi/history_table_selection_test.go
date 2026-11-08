@@ -42,3 +42,29 @@ func TestHistoricalSQLCannotExpandModelSchema(t *testing.T) {
 		}
 	}
 }
+
+func TestReferentialFollowupUsesOnlyCurrentlyVisiblePriorTable(t *testing.T) {
+	authorized := []Column{
+		{Schema: "public", Table: "orders", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "orders", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "customers", Name: "name", DataType: "text"},
+	}
+	selected := []Column{authorized[2], authorized[0], authorized[1]}
+	remarks := []RemarkHint{{Schema: "public", Table: "orders", Remark: "Orders"}, {Schema: "public", Table: "customers", Remark: "Customers"}}
+	history := []TurnContext{{Question: "west orders", SQL: "SELECT region, amount FROM public.orders WHERE region = 'west' LIMIT 20"}}
+	got, gotRemarks := focusReferentialFollowup("pg", "这些订单的 amount 合计是多少？", authorized, selected, remarks, history)
+	if len(got) != 2 || got[0].Name != "region" || got[1].Name != "amount" || len(gotRemarks) != 1 || gotRemarks[0].Table != "orders" {
+		t.Fatalf("referential follow-up retained unrelated schema: %#v %#v", got, gotRemarks)
+	}
+	for _, question := range []string{"Show customers", "这些订单和 public.customers 的情况？"} {
+		got, _ = focusReferentialFollowup("pg", question, authorized, selected, remarks, history)
+		if len(got) != len(selected) {
+			t.Fatalf("new table request lost selected schema: %q %#v", question, got)
+		}
+	}
+	revoked := []Column{authorized[0], authorized[2]}
+	got, _ = focusReferentialFollowup("pg", "这些订单的 amount 合计是多少？", revoked, selected, remarks, history)
+	if len(got) != len(selected) {
+		t.Fatalf("revoked historical SQL changed selected schema: %#v", got)
+	}
+}

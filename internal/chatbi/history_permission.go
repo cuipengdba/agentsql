@@ -91,3 +91,68 @@ func includeVisibleHistoryTables(dialect string, authorized []Column, remarks []
 	}
 	return selected, selectedRemarks
 }
+
+// focusReferentialFollowup avoids sending unrelated selected tables to a
+// small local model when the question clearly refers to the last result set.
+// The previous SQL is never trusted as a schema grant: its single table must
+// still be visible under the current authorization snapshot. An explicit
+// reference to another authorized table keeps normal multi-table selection.
+func focusReferentialFollowup(dialect, question string, authorized, selected []Column,
+	remarks []RemarkHint, history []TurnContext) ([]Column, []RemarkHint) {
+	q := strings.ToLower(strings.TrimSpace(question))
+	referential := false
+	for _, prefix := range []string{"这些", "那些", "其中", "这批", "上述", "它们", "these ", "those ", "their ", "among them", "of them"} {
+		if strings.HasPrefix(q, prefix) {
+			referential = true
+			break
+		}
+	}
+	if !referential || len(history) == 0 {
+		return selected, remarks
+	}
+	var dbDialect model.DBDialect
+	switch dialect {
+	case "pg":
+		dbDialect = model.DialectPostgres
+	case "mysql":
+		dbDialect = model.DialectMySQL
+	default:
+		return selected, remarks
+	}
+	approved, err := parser.NewParser(dbDialect)
+	if err != nil {
+		return selected, remarks
+	}
+	last := history[len(history)-1]
+	if !exampleVisibleSQL(approved, last.SQL, authorized) {
+		return selected, remarks
+	}
+	ast, err := approved.Parse(last.SQL)
+	if err != nil || len(ast.Tables) != 1 {
+		return selected, remarks
+	}
+	table := ast.Tables[0]
+	key := strings.ToLower(table.Schema) + "\x00" + strings.ToLower(table.Table)
+	for _, column := range authorized {
+		other := strings.ToLower(column.Schema) + "\x00" + strings.ToLower(column.Table)
+		if other != key && strings.Contains(q, strings.ToLower(column.Table)) {
+			return selected, remarks
+		}
+	}
+	focused := make([]Column, 0)
+	for _, column := range selected {
+		if strings.ToLower(column.Schema)+"\x00"+strings.ToLower(column.Table) == key {
+			focused = append(focused, column)
+		}
+	}
+	if len(focused) == 0 {
+		return selected, remarks
+	}
+	focusedRemarks := make([]RemarkHint, 0)
+	for _, remark := range remarks {
+		if strings.ToLower(remark.Schema)+"\x00"+strings.ToLower(remark.Table) == key {
+			focusedRemarks = append(focusedRemarks, remark)
+		}
+	}
+	return focused, focusedRemarks
+}

@@ -926,6 +926,7 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 			}
 		}
 		columns, remarks = includeVisibleHistoryTables(binding.Dialect, authorizedColumns, authorizedRemarks, columns, remarks, history)
+		columns, remarks = focusReferentialFollowup(binding.Dialect, question, authorizedColumns, columns, remarks, history)
 		history = visibleHistoryForModel(binding.Dialect, columns, history)
 		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
 			return err
