@@ -7,13 +7,13 @@
   <img src="brand/agentsql-wordmark-light.svg" width="360" height="80" alt="AgentSQL">
 </picture>
 
-![Version v4.8.1](https://img.shields.io/badge/Version-v4.8.1-blue)
+![Version v4.9.0](https://img.shields.io/badge/Version-v4.9.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 
 **AgentSQL = 独立 AI 问数 Agent + MCP Server 数据库安全网关。** 用户可直接在 AgentSQL 自有页面用自然语言问数；其他 AI Agent 可把 AgentSQL 当作独立 MCP Server 使用。两条入口共用当前身份与授权、受控 SQL 执行、结果脱敏和持久审计。AgentSQL 自有问数不依赖 SQLBot；SQLBot 是可经固定版本适配器接入的可选客户端。
 
-[官网](https://agentsql.cn/) · [中文问数界面与功能示意](https://agentsql.cn/#qa-gallery) · [v4.8.1 下载与发布边界](https://github.com/cuipengdba/agentsql/releases/tag/v4.8.1) · [三种使用方式](docs/PRODUCT_MODES.md) · [文档索引](docs/README.md)
+[官网](https://agentsql.cn/) · [中文问数界面与功能示意](https://agentsql.cn/#qa-gallery) · [v4.9.0 下载与发布边界](https://github.com/cuipengdba/agentsql/releases/tag/v4.9.0) · [三种使用方式](docs/PRODUCT_MODES.md) · [文档索引](docs/README.md)
 
 ## 选一种使用方式
 
@@ -29,33 +29,34 @@ AgentSQL 自有页面 → Go 问数 Agent ─────┐
 外部 AI Agent → AgentSQL MCP Server ─┘
 ```
 
-## v4.8.1 能力与边界
+## v4.9.0 能力与边界
 
 | 能力 | 当前状态 | 关键边界 |
 | --- | --- | --- |
 | 自有 AI 问数 | **限定路径已验** | 自有 Go/Web 问数；本地模型、运营方登记的 PostgreSQL 网关别名和当前权限，**无需 SQLBot 运行** |
+| 受权向量预热与问数 | **限定负载已验** | 128 张合成表三次独立冷态预热；固定 ONNX、本地 Qwen3-4B、真实 PostgreSQL 下 20 次热态完整问数 p95 28.83 秒，不是生产 SLA |
 | 私有数据源绑定轮换 | **限定路径已验** | 运维侧先建立新网关绑定并预检受权结构，再以旧绑定 ID 和存储修订比较提交；浏览器不能更换目标或凭据 |
 | MCP Server 安全网关 | **可独立使用** | stdio、Streamable HTTP 和独立无状态 HTTP；Agent Key 不等于管理员令牌，每次请求按当前授权执行 |
 | 基本助手与 Type 4 页面嵌入 | **限定路径已验** | 单数据源基本游客助手与指定页面嵌入，来源、身份及撤权仍受控 |
 | SQLBot 接入 | **可选固定基线** | 已验适配器可把指定 SQLBot 执行路径交给 AgentSQL MCP；不承诺任意部署零改动接入 |
-| Type 1 高级助手 | **沿用 v4.7 限定范围** | 运营方登记第三方目录并映射到当前受权网关别名；v4.8 精确签名包未重跑该入口，不扩大其支持声明 |
+| Type 1 高级助手 | **沿用 v4.7 限定范围** | 运营方登记第三方目录并映射到当前受权网关别名；v4.9 精确签名包未重跑该入口，不扩大其支持声明 |
 | 活动数据权限 | **限定形态已验** | 明确列出的同工作空间用户；内建管理员/普通成员角色限定；非空白名单只作元数据，不豁免行列限制 |
 | 更广兼容 | **部分只读载入；其余未验证** | 原版社区管理页列表可加载不等于创建、编辑、导入导出已验；云模型真实推理、任意角色扩展及原版权限库直接迁移仍未验证 |
 
-自然语言结果需要核对生成的 SQL 和业务含义。v4.8.1 **未在用户真实业务系统验证**，不宣称 100% 兼容或零改动切换；[正式发布说明](https://github.com/cuipengdba/agentsql/releases/tag/v4.8.1)给出精确提交、验收场景、性能数字与限制。公网 Demo 的问数模型仅作**模拟展示**。
+自然语言结果需要核对生成的 SQL 和业务含义。v4.9.0 **未在用户真实业务系统验证**，不宣称 100% 兼容或零改动切换；[正式发布说明](https://github.com/cuipengdba/agentsql/releases/tag/v4.9.0)给出精确提交、验收场景、性能数字与限制。[固定 25 场景评分合同](docs/sqlbot-community-chatbi-score-v1103.md)的本版严格通过数为 2/25，未验项计零，不等于代码功能总覆盖率。公网 Demo 的问数模型仅作**模拟展示**。
 
 ## 快速开始
 
-Linux `amd64` / `arm64` 原生包要求 glibc ≥ 2.28 和 PID 1 的 systemd。下载正式包后先按[发布说明](https://github.com/cuipengdba/agentsql/releases/tag/v4.8.1)核对签名和哈希。以下命令安装网关；自有问数需要按[三种使用方式](docs/PRODUCT_MODES.md)安装问数组件并配置本地文本模型与个人数据源绑定。
+Linux `amd64` / `arm64` 原生包要求 glibc ≥ 2.28 和 PID 1 的 systemd。下载正式包后先按[发布说明](https://github.com/cuipengdba/agentsql/releases/tag/v4.9.0)核对签名和哈希。以下命令安装网关；自有问数需要按[三种使用方式](docs/PRODUCT_MODES.md)安装问数组件并配置本地文本模型与个人数据源绑定。
 
 ```bash
-curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.8.1/install.sh | sudo sh -s -- install --version v4.8.1
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.9.0/install.sh | sudo sh -s -- install --version v4.9.0
 ```
 
 Docker 使用多架构正式镜像；一键脚本仅绑定本机回环地址并创建持久卷：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.8.1/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v4.8.1
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.9.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v4.9.0
 ```
 
 网关控制台默认 `http://127.0.0.1:7780`，安装了问数组件后自有页面默认 `http://127.0.0.1:8000`。安装器生成持久管理员密码；非交互日志不输出，可由 root 在 `/etc/agentsql/agentsql.env` 查看。远程访问应使用 SSH 本地转发或受控 HTTPS 反向代理，不直接暴露管理端口。离线安装、密钥、备份和升级步骤见[部署指南](docs/DEPLOY.md)。
