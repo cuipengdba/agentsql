@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "556e20871d7e2c6d51702bf0c391d87d0aa42ad8f6147c75a36ee72fba348ad9"
+      "source_sha256": "da7ed76ce30b686ede6a8469223f79e947dd5a1e699a8911855d2ae9b64c0919"
     },
     {
       "source": "CHANGELOG.md",
@@ -14,7 +14,7 @@
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "a0e31692067608b69993cf9e3a0ca5e547c72cb9b213f8bd40281c9cc3ea4e0f"
+      "source_sha256": "d485334f089903ad8650f994c2a5bee94b551deb004e74a4a12b8b884ab90701"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -1305,6 +1305,11 @@
       "source": "docs/v4.10.0-design.md",
       "english": "docs/en/v4.10.0-design.md",
       "source_sha256": "1d5573f37de5d737f81dacab965a80c7ecd303ef9e84fd418fcf984dbdcd9f38"
+    },
+    {
+      "source": "docs/v4.11.0-design.md",
+      "english": "docs/en/v4.11.0-design.md",
+      "source_sha256": "2cc29e4b11a6f3a1df983bdfc0ac305ad3b354051e4041e30211c06bc7a0781f"
     },
     {
       "source": "docs/sqlbot-community-chatbi-score-v1103.md",

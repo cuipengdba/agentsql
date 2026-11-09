@@ -135,6 +135,11 @@ func (h *Handler) exportRecord(w http.ResponseWriter, r *http.Request, p Princip
 			return
 		}
 	}
+	_, chatRevision, err := h.service.chat(r.Context(), p, metadata.Chat)
+	if err != nil {
+		failure(w, err)
+		return
+	}
 	binding, revision, digest, err := h.service.bindingSnapshot(r.Context(), p, metadata.Datasource)
 	if err != nil {
 		failure(w, err)
@@ -188,6 +193,10 @@ func (h *Handler) exportRecord(w http.ResponseWriter, r *http.Request, p Princip
 		return
 	}
 	if err := h.service.bindingUnchanged(r.Context(), p, binding, revision, digest); err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.service.chatUnchanged(r.Context(), p, metadata.Chat, chatRevision); err != nil {
 		failure(w, err)
 		return
 	}
