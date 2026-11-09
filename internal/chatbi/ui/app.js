@@ -114,9 +114,9 @@ function status(message,error=false){$('status').textContent=message;$('status')
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 async function api(path,body,method=body===undefined?'GET':'POST',signal){const multipart=body instanceof FormData;const response=await fetch(apiRoot+path,{method,headers:{...(multipart?{}:{'Content-Type':'application/json'}),...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:multipart?body:JSON.stringify(body),signal});if(response.status===401){clearConversation();token='';sessionStorage.removeItem('agentsql-chatbi-token');if($('key-dialog').open)$('key-dialog').close();hideUsers();hideVariables();hideModels();chatSettings.hide();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
 const dashboard=setupDashboard({api,t,node,get:$});
-let conversationEpoch=0;
+let conversationEpoch=0,conversationTarget=null;
 function clearConversation(){
-  conversationEpoch++;current=null;dashboard.setRecords(null);
+  conversationEpoch++;current=null;conversationTarget=null;dashboard.setRecords(null);
   $('conversation').replaceChildren();$('welcome').hidden=false;$('datasource').disabled=false;
   return conversationEpoch;
 }
@@ -160,7 +160,7 @@ function renderHistory(){
     remove.onclick=async()=>{
       if(controller||!window.confirm(t('deletePrompt')))return;
       try{await api('/chat/'+encodeURIComponent(String(item.id)),undefined,'DELETE');
-        if(String(item.id)===String(current)){$('new-chat').click();}else await history();status('');
+        if(String(item.id)===String(current)||String(item.id)===conversationTarget){$('new-chat').click();}else await history();status('');
       }catch{status(t('failed'),true);}
     };
     row.append(button,rename,remove);nav.append(row);
@@ -1080,7 +1080,7 @@ $('menu').onclick=()=>{const visible=document.documentElement.dataset.menu!=='op
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenu();});
 async function open(id){
   if(controller)return;
-  closeMenu();showQA();const epoch=clearConversation(),requestToken=token;status(t('reading'));
+  closeMenu();showQA();const epoch=clearConversation(),requestToken=token;conversationTarget=String(id);status(t('reading'));
   try{
     const chat=await api('/chat/'+encodeURIComponent(id)+'/with_data');
     if(epoch!==conversationEpoch||token!==requestToken)return;
