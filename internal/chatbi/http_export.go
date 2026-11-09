@@ -145,6 +145,16 @@ func (h *Handler) exportRecord(w http.ResponseWriter, r *http.Request, p Princip
 		failure(w, err)
 		return
 	}
+	permissions, err := h.service.dataPermissionSnapshot(r.Context(), p.Workspace)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	fingerprint, err := h.service.modelContextFingerprint(r.Context(), p, digest, permissions)
+	if err != nil {
+		failure(w, err)
+		return
+	}
 	record, err := h.service.Record(r.Context(), p, id, true)
 	if err != nil {
 		failure(w, err)
@@ -197,6 +207,17 @@ func (h *Handler) exportRecord(w http.ResponseWriter, r *http.Request, p Princip
 		return
 	}
 	if err := h.service.chatUnchanged(r.Context(), p, metadata.Chat, chatRevision); err != nil {
+		failure(w, err)
+		return
+	}
+	// The receipt itself is a durable write after Record's checks. Fence
+	// policy and identity changes committed during that write before setting
+	// download headers or releasing the buffered file.
+	if err := h.service.dataPermissionUnchanged(r.Context(), p.Workspace, permissions); err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.service.modelContextUnchanged(r.Context(), p, digest, permissions, fingerprint); err != nil {
 		failure(w, err)
 		return
 	}

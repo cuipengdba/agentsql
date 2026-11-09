@@ -112,8 +112,25 @@ function theme(value){document.documentElement.dataset.theme=value;localStorage.
 theme(localStorage.getItem('agentsql-chatbi-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));translate();
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
-async function api(path,body,method=body===undefined?'GET':'POST',signal){const multipart=body instanceof FormData;const response=await fetch(apiRoot+path,{method,headers:{...(multipart?{}:{'Content-Type':'application/json'}),...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:multipart?body:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');if($('key-dialog').open)$('key-dialog').close();hideUsers();hideVariables();hideModels();chatSettings.hide();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
+async function api(path,body,method=body===undefined?'GET':'POST',signal){
+  const requestToken=token,multipart=body instanceof FormData;
+  const response=await fetch(apiRoot+path,{method,headers:{...(multipart?{}:{'Content-Type':'application/json'}),...(requestToken?{'X-SQLBOT-TOKEN':'Bearer '+requestToken}:{})},body:body===undefined?undefined:multipart?body:JSON.stringify(body),signal});
+  if(response.status===401&&token===requestToken){
+    clearConversation();token='';historyEpoch++;historyItems=[];renderHistory();
+    sessionStorage.removeItem('agentsql-chatbi-token');if($('key-dialog').open)$('key-dialog').close();
+    hideUsers();hideVariables();hideModels();chatSettings.hide();$('users-list').replaceChildren();$('variable-list').replaceChildren();
+    $('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;
+  }
+  if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}
+  const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;
+}
 const dashboard=setupDashboard({api,t,node,get:$});
+let conversationEpoch=0,conversationTarget=null;
+function clearConversation(){
+  conversationEpoch++;current=null;conversationTarget=null;dashboard.setRecords(null);
+  $('conversation').replaceChildren();$('welcome').hidden=false;$('datasource').disabled=false;
+  return conversationEpoch;
+}
 const assistants=setupAssistants({api,node,get:$,canOpen:()=>!controller});
 const qaDisplay={sql:true,log:true};
 const chatSettings=setupChatSettings({api,node,get:$,canOpen:()=>!controller,onChange:value=>{qaDisplay.sql=!!value.show_sql;qaDisplay.log=!!value.show_log;}});
@@ -154,15 +171,15 @@ function renderHistory(){
     remove.onclick=async()=>{
       if(controller||!window.confirm(t('deletePrompt')))return;
       try{await api('/chat/'+encodeURIComponent(String(item.id)),undefined,'DELETE');
-        if(String(item.id)===String(current)){$('new-chat').click();}else await history();status('');
+        if(String(item.id)===String(current)||String(item.id)===conversationTarget){$('new-chat').click();}else await history();status('');
       }catch{status(t('failed'),true);}
     };
     row.append(button,rename,remove);nav.append(row);
   }
 }
 async function history(){
-  const epoch=++historyEpoch,items=await api('/chat/list');
-  if(epoch!==historyEpoch||!token)return;
+  const epoch=++historyEpoch,requestToken=token,items=await api('/chat/list');
+  if(epoch!==historyEpoch||!token||token!==requestToken)return;
   historyItems=items.sort((a,b)=>new Date(b.latest_record_time)-new Date(a.latest_record_time));
   renderHistory();
 }
@@ -313,19 +330,23 @@ async function loadUsage(id,details,content){
 }
 async function downloadExport(id,chatID,format,button){
   if(controller||!token)return;
+  const epoch=conversationEpoch,requestToken=token;
+  const active=()=>epoch===conversationEpoch&&token===requestToken&&String(current)===String(chatID)&&button.isConnected;
   button.disabled=true;status(t('exporting'));
   try{
     const path=format==='xlsx'?'/chat/record/'+encodeURIComponent(String(id))+'/excel/export/'+encodeURIComponent(String(chatID)):'/agentsql/record/'+encodeURIComponent(String(id))+'/export.csv';
     const response=await fetch(apiRoot+path,{
-      headers:{'X-SQLBOT-TOKEN':'Bearer '+token}
+      headers:{'X-SQLBOT-TOKEN':'Bearer '+requestToken}
     });
-    if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}
+    if(!active())return;
+    if(response.status===401){clearConversation();token='';sessionStorage.removeItem('agentsql-chatbi-token');$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}
     if(!response.ok||!response.headers.get('X-AgentSQL-Audit-ID')||!response.headers.get('Content-Type')?.includes(format==='xlsx'?'spreadsheetml.sheet':'text/csv'))throw new Error('export');
     const blob=await response.blob();
+    if(!active())return;
     const url=URL.createObjectURL(blob),link=document.createElement('a');
     link.href=url;link.download='agentsql-record-'+String(id)+'.'+format;document.body.append(link);link.click();link.remove();
     setTimeout(()=>URL.revokeObjectURL(url),30000);status('');
-  }catch{status(t('failed'),true);}finally{button.disabled=false;}
+  }catch{if(epoch===conversationEpoch){clearConversation();status(t('failed'),true);}}finally{button.disabled=false;}
 }
 function semanticStatus(value,error=false){$('semantic-status').textContent=value;$('semantic-status').classList.toggle('error',error);}
 function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
@@ -1068,9 +1089,19 @@ async function saveSemantic(event){
 function closeMenu(){document.documentElement.dataset.menu='closed';$('menu').setAttribute('aria-expanded','false');}
 $('menu').onclick=()=>{const visible=document.documentElement.dataset.menu!=='open';document.documentElement.dataset.menu=visible?'open':'closed';$('menu').setAttribute('aria-expanded',String(visible));};
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenu();});
-async function open(id){if(controller)return;closeMenu();showQA();status(t('reading'));try{const chat=await api('/chat/'+encodeURIComponent(id)+'/with_data');current=String(chat.id);$('datasource').value=String(chat.datasource);$('datasource').disabled=true;void loadSuggestions();show(chat);await history();status('');}catch{status(t('failed'),true);}}
+async function open(id){
+  if(controller)return;
+  closeMenu();showQA();const epoch=clearConversation(),requestToken=token;conversationTarget=String(id);status(t('reading'));
+  try{
+    const chat=await api('/chat/'+encodeURIComponent(id)+'/with_data');
+    if(epoch!==conversationEpoch||token!==requestToken)return;
+    current=String(chat.id);$('datasource').value=String(chat.datasource);$('datasource').disabled=true;
+    void loadSuggestions();show(chat);await history();
+    if(epoch===conversationEpoch)status('');
+  }catch{if(epoch===conversationEpoch){clearConversation();status(t('failed'),true);}}
+}
 $('login-form').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;$('login-error').textContent='';try{const data=await api('/agentsql/login',{username:$('username').value,password:$('password').value});token=data.access_token;sessionStorage.setItem('agentsql-chatbi-token',token);$('password').value='';await enter();}catch{$('login-error').textContent=t('loginFailed');}finally{button.disabled=false;}};
-$('logout').onclick=async()=>{controller?.abort();suggestionEpoch++;try{await api('/login/logout',{});}finally{token='';sessionStorage.removeItem('agentsql-chatbi-token');location.reload();}};
+$('logout').onclick=async()=>{controller?.abort();clearConversation();suggestionEpoch++;try{await api('/login/logout',{});}finally{token='';sessionStorage.removeItem('agentsql-chatbi-token');location.reload();}};
 $('account-settings').onclick=()=>{$('account-form').reset();$('account-status').textContent='';$('account-dialog').showModal();};
 $('account-keys').onclick=()=>{keyStatus('');$('key-dialog').showModal();void loadAPIKeys();};
 $('key-close').onclick=()=>$('key-dialog').close();
@@ -1078,7 +1109,7 @@ $('key-create').onclick=async()=>{const button=$('key-create');button.disabled=t
 $('account-workspace').onchange=async event=>{
   const select=event.target,target=select.value;
   if(!target)return;
-  select.disabled=true;controller?.abort();status(t('workspaceSwitching'));
+  select.disabled=true;controller?.abort();clearConversation();status(t('workspaceSwitching'));
   try{
     await api('/user/ws/'+encodeURIComponent(target),undefined,'PUT');
     location.reload();
@@ -1093,11 +1124,11 @@ $('account-form').onsubmit=async event=>{
   $('account-status').textContent='';
   try{
     await api('/user/pwd',{pwd:$('current-password').value,new_pwd:$('new-password').value},'PUT');
-    $('account-dialog').close();token='';sessionStorage.removeItem('agentsql-chatbi-token');
+    $('account-dialog').close();clearConversation();token='';sessionStorage.removeItem('agentsql-chatbi-token');
     $('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;$('login-error').textContent=t('passwordChanged');
   }catch{$('account-status').textContent=t('failed');}finally{submit.disabled=false;$('account-form').reset();}
 };
-$('new-chat').onclick=()=>{if(controller)return;closeMenu();current=null;showQA();$('conversation').replaceChildren();$('welcome').hidden=false;$('datasource').disabled=false;$('question').value='';status('');history().catch(()=>status(t('failed'),true));void loadSuggestions();$('question').focus();};
+$('new-chat').onclick=()=>{if(controller)return;closeMenu();clearConversation();showQA();$('question').value='';status('');history().catch(()=>status(t('failed'),true));void loadSuggestions();$('question').focus();};
 $('history-search').oninput=()=>renderHistory();
 $('datasource').onchange=()=>{void loadSuggestions();};
 $('semantics-nav').onclick=()=>{void showSemantics();};
@@ -1304,5 +1335,47 @@ $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'li
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;
 $('cancel').onclick=()=>controller?.abort();
-$('question-form').onsubmit=async event=>{event.preventDefault();if(controller||!$('question').value.trim())return;const question=$('question').value.trim();controller=new AbortController();const signal=controller.signal;$('send').disabled=true;$('cancel').hidden=false;status(t('working'));try{if(!current){const chat=await api('/chat/start',{datasource:$('datasource').value,question,origin:0},'POST',signal);current=String(chat.id);$('datasource').disabled=true;}$('welcome').hidden=true;const response=await fetch(apiRoot+'/chat/question',{method:'POST',headers:{'Content-Type':'application/json','X-SQLBOT-TOKEN':'Bearer '+token},body:JSON.stringify({chat_id:current,question}),signal});if(!response.ok||!response.body)throw new Error('request');const reader=response.body.getReader();const decoder=new TextDecoder();let pending='',finished=false;while(true){const {value,done}=await reader.read();if(done)break;pending+=decoder.decode(value,{stream:true});let boundary;while((boundary=pending.indexOf('\n\n'))>=0){const block=pending.slice(0,boundary);pending=pending.slice(boundary+2);for(const line of block.split('\n')){if(!line.startsWith('data:'))continue;const item=JSON.parse(line.slice(5));if(item.type==='error')throw new Error('request');if(item.type==='finish')finished=true;}}}if(!finished)throw new Error('incomplete');$('question').value='';const chat=await api('/chat/'+encodeURIComponent(current)+'/with_data',undefined,'GET',signal);show(chat);await history();status('');}catch(error){status(error.name==='AbortError'?t('cancelled'):t('failed'),error.name!=='AbortError');}finally{controller=null;$('send').disabled=false;$('cancel').hidden=true;}};
+$('question-form').onsubmit=async event=>{
+  event.preventDefault();if(controller||!$('question').value.trim())return;
+  // Sending a question replaces any still-loading history view and fences
+  // its late response, just like opening another conversation does.
+  const epoch=++conversationEpoch,requestToken=token,question=$('question').value.trim();
+  conversationTarget=null;controller=new AbortController();const signal=controller.signal;
+  const active=()=>epoch===conversationEpoch&&token===requestToken&&!signal.aborted;
+  $('send').disabled=true;$('cancel').hidden=false;status(t('working'));
+  try{
+    if(!current){
+      const chat=await api('/chat/start',{datasource:$('datasource').value,question,origin:0},'POST',signal);
+      if(!active())return;
+      current=String(chat.id);$('datasource').disabled=true;
+    }
+    const chatID=current;$('welcome').hidden=true;
+    const response=await fetch(apiRoot+'/chat/question',{method:'POST',headers:{'Content-Type':'application/json','X-SQLBOT-TOKEN':'Bearer '+requestToken},body:JSON.stringify({chat_id:chatID,question}),signal});
+    if(!response.ok||!response.body)throw new Error('request');
+    const reader=response.body.getReader(),decoder=new TextDecoder();let pending='',finished=false;
+    while(true){
+      const {value,done}=await reader.read();if(done)break;
+      pending+=decoder.decode(value,{stream:true});let boundary;
+      while((boundary=pending.indexOf('\n\n'))>=0){
+        const block=pending.slice(0,boundary);pending=pending.slice(boundary+2);
+        for(const line of block.split('\n')){
+          if(!line.startsWith('data:'))continue;
+          const item=JSON.parse(line.slice(5));if(item.type==='error')throw new Error('request');
+          if(item.type==='finish')finished=true;
+        }
+      }
+    }
+    if(!finished)throw new Error('incomplete');
+    if(!active())return;
+    $('question').value='';
+    const chat=await api('/chat/'+encodeURIComponent(chatID)+'/with_data',undefined,'GET',signal);
+    if(!active())return;
+    show(chat);await history();if(active())status('');
+  }catch(error){
+    if(epoch===conversationEpoch){
+      if(error.name!=='AbortError')clearConversation();
+      status(error.name==='AbortError'?t('cancelled'):t('failed'),error.name!=='AbortError');
+    }
+  }finally{controller=null;$('send').disabled=false;$('cancel').hidden=true;}
+};
 if(token)enter().catch(()=>{status(t('failed'),true);$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;});
