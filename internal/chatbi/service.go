@@ -195,7 +195,7 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 	if _, err := service.Store.get(ctx, recordKey(p, id), &chatID); err != nil {
 		return Record{}, err
 	}
-	chat, _, err := service.chat(ctx, p, chatID)
+	chat, chatRevision, err := service.chat(ctx, p, chatID)
 	if err != nil {
 		return Record{}, err
 	}
@@ -249,6 +249,9 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 			}
 			record.DataDigest = ""
 			if err := service.live(ctx, p); err != nil {
+				return Record{}, err
+			}
+			if err := service.chatUnchanged(ctx, p, chatID, chatRevision); err != nil {
 				return Record{}, err
 			}
 			return record, nil
@@ -490,6 +493,19 @@ func (service *Service) chat(ctx context.Context, p Principal, id ID) (Chat, int
 	return chat, rev, nil
 }
 
+// Historical data must not leave the process if its owning conversation was
+// deleted or modified while a controlled gateway query was in flight.
+func (service *Service) chatUnchanged(ctx context.Context, p Principal, id ID, revision int64) error {
+	_, currentRevision, err := service.chat(ctx, p, id)
+	if err != nil {
+		return err
+	}
+	if currentRevision != revision {
+		return ErrConflict
+	}
+	return nil
+}
+
 func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) {
 	if err := service.live(ctx, p); err != nil {
 		return nil, err
@@ -643,12 +659,15 @@ func (service *Service) RecentQuestions(ctx context.Context, p Principal, dataso
 // policy snapshot attestations are available, requesting data reexecutes each
 // read through the current live authorization/masking/audit boundary.
 func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withData bool) (Chat, error) {
-	chat, _, err := service.chat(ctx, p, id)
+	chat, chatRevision, err := service.chat(ctx, p, id)
 	if err != nil {
 		return Chat{}, err
 	}
 	if (chat.Origin == 1 || chat.Origin == 2) && chat.Datasource == "" && len(chat.Records) == 0 {
 		if err := service.live(ctx, p); err != nil {
+			return Chat{}, err
+		}
+		if err := service.chatUnchanged(ctx, p, id, chatRevision); err != nil {
 			return Chat{}, err
 		}
 		chat.LeaseUntil = time.Time{}
@@ -705,6 +724,9 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 		return Chat{}, err
 	}
 	if err := service.live(ctx, p); err != nil {
+		return Chat{}, err
+	}
+	if err := service.chatUnchanged(ctx, p, id, chatRevision); err != nil {
 		return Chat{}, err
 	}
 	chat.LeaseUntil = time.Time{}
