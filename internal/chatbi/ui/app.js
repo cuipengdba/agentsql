@@ -112,7 +112,18 @@ function theme(value){document.documentElement.dataset.theme=value;localStorage.
 theme(localStorage.getItem('agentsql-chatbi-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));translate();
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
-async function api(path,body,method=body===undefined?'GET':'POST',signal){const multipart=body instanceof FormData;const response=await fetch(apiRoot+path,{method,headers:{...(multipart?{}:{'Content-Type':'application/json'}),...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:multipart?body:JSON.stringify(body),signal});if(response.status===401){clearConversation();token='';sessionStorage.removeItem('agentsql-chatbi-token');if($('key-dialog').open)$('key-dialog').close();hideUsers();hideVariables();hideModels();chatSettings.hide();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
+async function api(path,body,method=body===undefined?'GET':'POST',signal){
+  const requestToken=token,multipart=body instanceof FormData;
+  const response=await fetch(apiRoot+path,{method,headers:{...(multipart?{}:{'Content-Type':'application/json'}),...(requestToken?{'X-SQLBOT-TOKEN':'Bearer '+requestToken}:{})},body:body===undefined?undefined:multipart?body:JSON.stringify(body),signal});
+  if(response.status===401&&token===requestToken){
+    clearConversation();token='';historyEpoch++;historyItems=[];renderHistory();
+    sessionStorage.removeItem('agentsql-chatbi-token');if($('key-dialog').open)$('key-dialog').close();
+    hideUsers();hideVariables();hideModels();chatSettings.hide();$('users-list').replaceChildren();$('variable-list').replaceChildren();
+    $('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;
+  }
+  if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}
+  const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;
+}
 const dashboard=setupDashboard({api,t,node,get:$});
 let conversationEpoch=0,conversationTarget=null;
 function clearConversation(){
@@ -167,8 +178,8 @@ function renderHistory(){
   }
 }
 async function history(){
-  const epoch=++historyEpoch,items=await api('/chat/list');
-  if(epoch!==historyEpoch||!token)return;
+  const epoch=++historyEpoch,requestToken=token,items=await api('/chat/list');
+  if(epoch!==historyEpoch||!token||token!==requestToken)return;
   historyItems=items.sort((a,b)=>new Date(b.latest_record_time)-new Date(a.latest_record_time));
   renderHistory();
 }
@@ -1324,5 +1335,47 @@ $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'li
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;
 $('cancel').onclick=()=>controller?.abort();
-$('question-form').onsubmit=async event=>{event.preventDefault();if(controller||!$('question').value.trim())return;const question=$('question').value.trim();controller=new AbortController();const signal=controller.signal;$('send').disabled=true;$('cancel').hidden=false;status(t('working'));try{if(!current){const chat=await api('/chat/start',{datasource:$('datasource').value,question,origin:0},'POST',signal);current=String(chat.id);$('datasource').disabled=true;}$('welcome').hidden=true;const response=await fetch(apiRoot+'/chat/question',{method:'POST',headers:{'Content-Type':'application/json','X-SQLBOT-TOKEN':'Bearer '+token},body:JSON.stringify({chat_id:current,question}),signal});if(!response.ok||!response.body)throw new Error('request');const reader=response.body.getReader();const decoder=new TextDecoder();let pending='',finished=false;while(true){const {value,done}=await reader.read();if(done)break;pending+=decoder.decode(value,{stream:true});let boundary;while((boundary=pending.indexOf('\n\n'))>=0){const block=pending.slice(0,boundary);pending=pending.slice(boundary+2);for(const line of block.split('\n')){if(!line.startsWith('data:'))continue;const item=JSON.parse(line.slice(5));if(item.type==='error')throw new Error('request');if(item.type==='finish')finished=true;}}}if(!finished)throw new Error('incomplete');$('question').value='';const chat=await api('/chat/'+encodeURIComponent(current)+'/with_data',undefined,'GET',signal);show(chat);await history();status('');}catch(error){status(error.name==='AbortError'?t('cancelled'):t('failed'),error.name!=='AbortError');}finally{controller=null;$('send').disabled=false;$('cancel').hidden=true;}};
+$('question-form').onsubmit=async event=>{
+  event.preventDefault();if(controller||!$('question').value.trim())return;
+  // Sending a question replaces any still-loading history view and fences
+  // its late response, just like opening another conversation does.
+  const epoch=++conversationEpoch,requestToken=token,question=$('question').value.trim();
+  conversationTarget=null;controller=new AbortController();const signal=controller.signal;
+  const active=()=>epoch===conversationEpoch&&token===requestToken&&!signal.aborted;
+  $('send').disabled=true;$('cancel').hidden=false;status(t('working'));
+  try{
+    if(!current){
+      const chat=await api('/chat/start',{datasource:$('datasource').value,question,origin:0},'POST',signal);
+      if(!active())return;
+      current=String(chat.id);$('datasource').disabled=true;
+    }
+    const chatID=current;$('welcome').hidden=true;
+    const response=await fetch(apiRoot+'/chat/question',{method:'POST',headers:{'Content-Type':'application/json','X-SQLBOT-TOKEN':'Bearer '+requestToken},body:JSON.stringify({chat_id:chatID,question}),signal});
+    if(!response.ok||!response.body)throw new Error('request');
+    const reader=response.body.getReader(),decoder=new TextDecoder();let pending='',finished=false;
+    while(true){
+      const {value,done}=await reader.read();if(done)break;
+      pending+=decoder.decode(value,{stream:true});let boundary;
+      while((boundary=pending.indexOf('\n\n'))>=0){
+        const block=pending.slice(0,boundary);pending=pending.slice(boundary+2);
+        for(const line of block.split('\n')){
+          if(!line.startsWith('data:'))continue;
+          const item=JSON.parse(line.slice(5));if(item.type==='error')throw new Error('request');
+          if(item.type==='finish')finished=true;
+        }
+      }
+    }
+    if(!finished)throw new Error('incomplete');
+    if(!active())return;
+    $('question').value='';
+    const chat=await api('/chat/'+encodeURIComponent(chatID)+'/with_data',undefined,'GET',signal);
+    if(!active())return;
+    show(chat);await history();if(active())status('');
+  }catch(error){
+    if(epoch===conversationEpoch){
+      if(error.name!=='AbortError')clearConversation();
+      status(error.name==='AbortError'?t('cancelled'):t('failed'),error.name!=='AbortError');
+    }
+  }finally{controller=null;$('send').disabled=false;$('cancel').hidden=true;}
+};
 if(token)enter().catch(()=>{status(t('failed'),true);$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;});
