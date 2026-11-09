@@ -64,7 +64,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v4.9.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.9.0)） | 修复可复现的短 SQLite 写锁身份审计超时，补预热安全失败类别；签名包在指定 128 表、真实模型和数据库负载下完成冷热问数、历史撤权、故障关闭与双架构断网验收。固定 25 场景严格验收基线 2/25；6 路身份探测的 15 秒客户端超时不作高并发通过声明。 |
 | v4.10.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.10.0)） | 受权单表过滤、分组、排序、限量和同表追问，以及未修改原版问数页、MCP SDK、基本助手和 Type 4 嵌入的有界真实链路；固定 25 场景严格通过 Q1、I1、H1，共 3/25。其余正向切片不替代完整正负验收。 |
 | v4.11.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.11.0)） | 会话删除与历史导出竞态修复，签名包的真实模型问数、重启历史和基本/页面嵌入切片复验；固定矩阵严格通过仍为 3/25。完整证据及边界见发布说明。 |
-| v4.12.0 | 开发中（[设计与验收合同](docs/v4.12.0-design.md)） | 导出收据提交后的当前权限与身份复核，原生页面的历史/下载竞态隔离，以及 H2/H3/H4 的同包正负验收；未完成的完整场景继续计零。 |
+| v4.12.0 | 已发布 ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.12.0)) | 导出收据后的授权复核、原生历史与下载隔离、同包历史/导出/会话生命周期验收；固定矩阵6/25。[验收记录](docs/v4.12.0-acceptance.md)。 |
 
 ## v3.1.0 设计与验收范围
 
