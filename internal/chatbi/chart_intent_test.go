@@ -49,7 +49,7 @@ func TestAmbiguousOrUnverifiedChartFallsBackToTable(t *testing.T) {
 		{"同时画横向柱状图和饼图", []string{"region", "amount"}, []map[string]any{{"region": "east", "amount": "10"}}},
 		{"Show a bar chart", []string{"region", "amount"}, []map[string]any{{"region": "east", "amount": "not-a-number"}}},
 		{"Show a bar chart", []string{"region", "amount"}, nil},
-		{"Show a bar chart", []string{"region", "amount", "other"}, []map[string]any{{"region": "east", "amount": "10", "other": "20"}}},
+		{"Show a bar chart", []string{"region", "amount", "other"}, []map[string]any{{"region": "east", "amount": "10", "other": "text-category"}}},
 	} {
 		data := QueryData{Fields: tc.fields, Data: tc.rows}
 		for _, field := range tc.fields {

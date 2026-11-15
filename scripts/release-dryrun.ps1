@@ -664,7 +664,7 @@ foreach ($architecture in @('amd64', 'arm64')) {
         'run', '--rm', '--platform', "linux/$architecture",
         '-e', "ARCH=$architecture",
         '-e', "VERSION=$Version",
-        '-e', 'GO_VERSION=1.26.10',
+        '-e', 'GO_VERSION=1.26.11',
         '-e', 'GOPROXY=https://goproxy.cn,direct',
         '-e', "SOURCE_DATE_EPOCH=$SourceDateEpoch",
         '-v', "${repositoryRoot}:/src",
@@ -686,7 +686,7 @@ foreach ($architecture in @('amd64', 'arm64')) {
         if (-not (Test-Path -LiteralPath $goReleaseCache -PathType Container)) {
             throw "Go release cache directory is missing: $goReleaseCache"
         }
-        $goArchive = Join-Path $goReleaseCache "go1.26.10.linux-$architecture.tar.gz"
+        $goArchive = Join-Path $goReleaseCache "go1.26.11.linux-$architecture.tar.gz"
         if (-not (Test-Path -LiteralPath $goArchive -PathType Leaf)) {
             throw "Go release cache archive is missing: $goArchive"
         }
@@ -818,7 +818,7 @@ $provenance = [ordered]@{
     builder       = [ordered]@{
         kind       = if ($ProductionPrepare) { 'local Docker production preparation' } else { 'local Docker dry-run' }
         rockyImage = $RockyImage
-        go         = '1.26.10'
+        go         = '1.26.11'
         syftImage  = $SyftImage
         cgo        = $true
     }

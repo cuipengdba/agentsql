@@ -2,13 +2,18 @@
 
 **Language:** [English](USER_GUIDE.md) | [Simplified Chinese](../USER_GUIDE.md)
 
-> Current guidance: Applies to v4.4.0 and compatible 4.4.x maintenance releases. Historical introduction versions and acceptance records retain their original facts; see the [document index](README.md) for the current entry point.
+> Current guidance: Applies to v4.13.0 and compatible 4.13.x maintenance releases. Historical introduction versions and acceptance records retain their original facts; see the [document index](README.md) for the current entry point.
 
-> This guide covers AgentSQL v4.4.0. Before installing or pulling v4.4.0, check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) and confirm the matching GHCR image can be pulled anonymously. The source repository is `github.com/cuipengdba/agentsql`.
+> This guide covers AgentSQL v4.13.0. Before installing or pulling v4.13.0, check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) and confirm the matching GHCR image can be pulled anonymously. The source repository is `github.com/cuipengdba/agentsql`.
 
-This manual follows the v4.4.0 console menus. Start with [Getting Started](GETTING_STARTED.md); see the [MCP integration guide](INTEGRATIONS.md) for clients, the [v4.4.0 release notes](release-notes-v4.4.0.md) and [design and acceptance record](v4.4.0-design.md) for verified scope, and the [notification guide](NOTIFICATIONS.md) for Webhook and Syslog boundaries.
+This manual follows the v4.13.0 console menus. Start with [Getting Started](GETTING_STARTED.md); see the [MCP integration guide](INTEGRATIONS.md) for clients, the [v4.13.0 release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.13.0) and [design and acceptance record](v4.13.0-design.md) for verified scope, and the [notification guide](NOTIFICATIONS.md) for Webhook and Syslog boundaries.
 
 The console login page and the language button in the upper right corner after logging in can switch between Chinese and English, and the selection will be saved in the current browser; `?lang=en` or `?lang=zh` can specify the first opening language. The left menu can be scrolled independently when the effective viewport height is insufficient, and the bottom options can also be accessed with the keyboard after focusing the menu. Language switching only changes the interface copy and does not modify the SQL, query results and audit records. Complete English documentation is available through the language link at the top. Capability claims are bounded by the corresponding acceptance record.
+
+
+## Current Q&A and gateway usage
+
+Use [three usage modes](PRODUCT_MODES.md) to configure independent Q&A, MCP Server or both. Result charts select a dimension and up to four measures; switching executes no SQL and reopening authorizes again. Verify all 17 signed assets and the outer transport archive with an independently trusted key. Historical version sections below describe introduction conditions; current verified scope follows [v4.13.0 acceptance](https://github.com/cuipengdba/agentsql/releases/tag/v4.13.0).
 
 ## v3.9.0 Oracle and SQL Server controlled reads
 
@@ -889,6 +894,4 @@ After signing in to the standalone Q&A page, use the bottom of the sidebar to sw
 
 The datasource page manages table selection, table and field remarks, and relationships only for authorized, currently visible server-bound PostgreSQL/MySQL sources. Select visible tables, load fields, then save relationships. Re-read after deselecting a table or revoking a grant; an old relationship cannot authorize a query. Relationships are JOIN hints to the local model. Each generated SQL statement still passes current gateway authorization, execution controls, masking, and durable audit. The page supports editing at most 64 visible tables. File sources and other databases do not gain the same capability from this release.
 
-v4.5.0 validates only the ordinary SQLBot Community v1.10.3 Q&A page, original Python MCP SDK, one-source basic guest assistant, and Type 4 page embed in specified synthetic scenarios. Other Community pages, APIs, embed modes, and the user's actual business-system migration remain unverified. This does not establish complete compatibility or a zero-change cutover. See the [v4.5.0 GitHub release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0) for the exact scope.
-
-v4.6.0 adds a bounded path for the fixed original Type 1 advanced assistant. Operators register a private third-party catalog, map its IDs to existing authorized gateway aliases, and enable the separate assistant listener only after configuring the host certificate, origin, and non-admin user. The catalog cannot create database connections or replace current authorization. See the [Type 1 design and setup](v4.6.0-design.md#production-deployment-boundary) and [v4.6.0 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0) for exact scope. Active role, multi-user, and non-empty allow-list rules and other Community pages/APIs are outside this release's support claim.
+Current Q&A, MCP SDK, basic assistant, Type 4 page embed and active-policy scope follow [three usage modes](PRODUCT_MODES.md) and [v4.13.0 exact acceptance](https://github.com/cuipengdba/agentsql/releases/tag/v4.13.0). Type 1 directory registration and the separate listener are documented in [deployment design](v4.6.0-design.md#production-deployment-boundary); successful configuration is not complete same-release business acceptance. The user's real business system remains untested; full compatibility and zero-change switching are not claimed.

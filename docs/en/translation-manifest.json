@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "fc37939ea62b5efdd765642882f4798d486496aa07f40ea6699123a5e9b0d9bf"
+      "source_sha256": "d858bda3831508d390cc59500dee64810728e92163aa5489f8e74978e823a3e2"
     },
     {
       "source": "CHANGELOG.md",
@@ -109,7 +109,7 @@
     {
       "source": "docs/GETTING_STARTED.md",
       "english": "docs/en/GETTING_STARTED.md",
-      "source_sha256": "9739cc76c18417633cec0ab1d45defd1f86c7e3e8f25f5d948eb6f08691b60cb"
+      "source_sha256": "ea01d8bc93dd682759fec44c2fff71c68e1c2362d0ab3b2da932601d58327902"
     },
     {
       "source": "docs/highgo-verification.md",
@@ -124,7 +124,7 @@
     {
       "source": "docs/INTEGRATIONS.md",
       "english": "docs/en/INTEGRATIONS.md",
-      "source_sha256": "09892baa1dcabf2f8572ffe9f7bc474053c3e0762eac57cbf4801676d9fd4770"
+      "source_sha256": "9e62b1def6c711f834f24d205ff1ebb878ae204525d3ccaf28efd6ba2578681b"
     },
     {
       "source": "docs/joint-case-kingbase-highgo.md",
@@ -509,7 +509,7 @@
     {
       "source": "docs/USER_GUIDE.md",
       "english": "docs/en/USER_GUIDE.md",
-      "source_sha256": "677d3e732079f3b864b5a1ccb233431f12e85cbcd90855eb9c49cfdd0c9e9830"
+      "source_sha256": "e95935f4a06bb12db6414cf6bd5cffdd40e3e83e512308895b5492d82d7ada98"
     },
     {
       "source": "docs/v0.5-known-issues-task7.md",
@@ -1279,7 +1279,7 @@
     {
       "source": "docs/PRODUCT_MODES.md",
       "english": "docs/en/PRODUCT_MODES.md",
-      "source_sha256": "2233f7f16e2ab0434d440ea7b29b6f002e3d0ed959483ecc752370e80e7bae82"
+      "source_sha256": "794224b156f56644f2196d8e352bb8c6cc7c472a3b906b340a405ef5256f544b"
     },
     {
       "source": "docs/v4.6.0-design.md",
@@ -1325,6 +1325,11 @@
       "source": "docs/v4.12.0-acceptance.md",
       "english": "docs/en/v4.12.0-acceptance.md",
       "source_sha256": "19cdedc30d335c9a3baf90257073fc5f4696cc20d70ca2dbae7cbcc2a2c081c4"
+    },
+    {
+      "source": "docs/v4.13.0-design.md",
+      "english": "docs/en/v4.13.0-design.md",
+      "source_sha256": "7f34571af11d2bfbf7baf6af451f6e75cbfaeda7b84ca7633d1d7338d1e38867"
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { chartSeries, renderChart } from './chart.js';
+import { resultChartPanel } from './chart.js';
 import { setupDashboard } from './dashboard.js';
 import { setupAssistants } from './assistants.js';
 import { setupChatSettings } from './chat-settings.js';
@@ -12,6 +12,8 @@ const copy = {
   'zh-CN': {menu:'菜单',loginTitle:'与数据对话',loginSubtitle:'使用你的账号登录 AgentSQL',account:'账号',password:'密码',login:'登录',qa:'问数',newChat:'＋ 新建对话',history:'最近对话',logout:'退出',protected:'受控数据访问',theme:'切换主题',title:'让每个问题，都有数据依据。',subtitle:'选择数据源，用自然语言探索业务数据。',feature1:'按权限查询',feature2:'敏感信息脱敏',feature3:'全程可追溯',datasource:'数据源',question:'你的问题',placeholder:'例如：按地区汇总销售额',review:'请结合 SQL 与结果核实模型回答。',cancel:'停止',send:'发送 ↗',refreshNotice:'历史结果会按当前权限重新读取。',working:'正在生成并验证查询…',reading:'正在读取结果…',empty:'没有可用的数据源，请联系管理员配置访问权限。',failed:'请求未完成，请检查权限或稍后重试。',cancelled:'已停止请求。',sql:'查看 SQL',rows:'行',audit:'审计记录',noRows:'查询成功，没有匹配的数据。',unfinished:'请求尚未完成。',loginFailed:'登录失败，请检查账号和密码。'},
   en: {menu:'Menu',loginTitle:'Talk to your data',loginSubtitle:'Sign in to AgentSQL with your account',account:'Account',password:'Password',login:'Sign in',qa:'Q&A',newChat:'+ New conversation',history:'Recent conversations',logout:'Sign out',protected:'Controlled data access',theme:'Toggle theme',title:'Give every question a data-backed answer.',subtitle:'Choose a datasource and explore your business data in natural language.',feature1:'Permission-aware queries',feature2:'Sensitive data masking',feature3:'Traceable results',datasource:'Datasource',question:'Your question',placeholder:'For example: summarize sales by region',review:'Review the SQL and results to verify model answers.',cancel:'Stop',send:'Send ↗',refreshNotice:'Historical results are refreshed under current permissions.',working:'Generating and checking your query…',reading:'Loading results…',empty:'No datasources are available. Ask your administrator to configure access.',failed:'The request did not complete. Check permissions or try again later.',cancelled:'Request stopped.',sql:'View SQL',rows:'rows',audit:'Audit record',noRows:'The query succeeded with no matching rows.',unfinished:'This request has not completed.',loginFailed:'Sign-in failed. Check your account and password.'}
 };
+Object.assign(copy['zh-CN'], {chartDimension:'维度',chartMeasures:'指标（最多4个）',chartHorizontal:'条形图',chartCurrentOnly:'仅显示当前受权结果前20行；选择仅在当前视图生效，重开使用问题指定的默认图表',chartInvalid:'当前选择无法安全绘图。请选择不同的维度与1–4个数值指标；饼图仅支持单个非负指标。已显示原始表格。',chartTruncated:'网关返回的结果已截断'});
+Object.assign(copy.en, {chartDimension:'Dimension',chartMeasures:'Measures (up to 4)',chartHorizontal:'Horizontal bars',chartCurrentOnly:'First 20 currently authorized rows. Choices apply to this view only; reopening uses the question’s default chart.',chartInvalid:'This selection cannot be plotted safely. Choose a distinct dimension and 1–4 numeric measures; pies require one nonnegative measure. The raw table is shown.',chartTruncated:'Gateway result is truncated'});
 Object.assign(copy['zh-CN'], {
   semanticNav:'业务语义',semanticTitle:'业务语义',semanticIntro:'术语和 SQL 示例只作为已授权问数的参考，不会绕过当前数据库权限。',semanticAdd:'新增',terms:'术语',examples:'SQL 示例',search:'搜索',termWord:'术语',description:'说明',aliases:'别名（逗号分隔）',termSources:'限定数据源（可不选）',exampleQuestion:'示例问题',exampleSQL:'示例 SQL',exampleSource:'数据源',enabled:'启用',disabled:'已停用',save:'保存',formCancel:'取消',previous:'上一页',next:'下一页',edit:'编辑',remove:'删除',disable:'停用',enable:'启用',noSemantic:'暂无记录',semanticSaved:'已保存',semanticDeleted:'已删除',confirmDelete:'确定删除这条记录？',items:'条',newTerm:'新增术语',editTerm:'编辑术语',newExample:'新增 SQL 示例',editExample:'编辑 SQL 示例',sourceRequired:'请先配置有权限的数据源。'
 });
@@ -259,23 +261,7 @@ function show(chat){
         const body=node('tbody');
         for(const item of data.data){const row=node('tr');for(const field of data.fields||[])row.append(node('td',item[field]===null?'—':String(item[field]??'')));body.append(row);}
         table.append(body);wrap.append(table);
-        const series=chartSeries(data);
-        if(series){
-          const tabs=node('div',undefined,'chart-tabs'),plot=node('div',undefined,'chart-plot');
-          const views={table:wrap,bar:renderChart(series,'bar'),line:renderChart(series,'line')};
-          const kinds=[['table','chartTable'],['bar','chartBar'],['line','chartLine']];
-          if(series.items.some(item=>item.value>0)){views.pie=renderChart(series,'pie');kinds.push(['pie','chartPie']);}
-          for(const [type,key] of kinds){
-            const button=node('button',t(key));button.type='button';button.className='chart-tab';
-            button.setAttribute('aria-pressed',String(type==='table'));
-            button.onclick=()=>{
-              for(const sibling of tabs.children)sibling.setAttribute('aria-pressed',String(sibling===button));
-              plot.replaceChildren(views[type]);
-            };
-            tabs.append(button);
-          }
-          plot.append(wrap);answer.append(tabs,plot);
-        }else answer.append(wrap);
+        answer.append(resultChartPanel(data,record.chart,wrap,t));
       }
       answer.append(node('div',`${data.data?.length||0} ${t('rows')} · ${t('audit')} #${data.audit_id}`,'audit'));
       for(const format of ['csv','xlsx']){

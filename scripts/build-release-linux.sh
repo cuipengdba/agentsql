@@ -4,7 +4,7 @@ set -eu
 
 ARCH=${ARCH:-amd64}
 VERSION=${VERSION:-v4.6.0}
-GO_VERSION=${GO_VERSION:-1.26.10}
+GO_VERSION=${GO_VERSION:-1.26.11}
 GOPROXY=${GOPROXY:-https://goproxy.cn,direct}
 YASHAN_CLIENT_VERSION=${YASHAN_CLIENT_VERSION:-23.4.7.100}
 YASHAN_CLIENT_REVISION=${YASHAN_CLIENT_REVISION:-a72b24d63ba0e43820c43d7443c0e4fd0ab304fd}
@@ -39,11 +39,11 @@ dnf -y install --nodocs --setopt=install_weak_deps=False gcc glibc-devel glibc-c
 
 go_filename="go${GO_VERSION}.linux-${ARCH}.tar.gz"
 if [ -n "${GO_RELEASE_CACHE:-}" ]; then
-  # Digests from https://go.dev/dl/?mode=json&include=all for go1.26.10.
+  # Digests from https://go.dev/dl/?mode=json&include=all for go1.26.11.
   # A caller-provided archive must not become a new trust root.
   case "${GO_VERSION}/${ARCH}" in
-    1.26.10/amd64) expected_go_sha=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 ;;
-    1.26.10/arm64) expected_go_sha=3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797 ;;
+    1.26.11/amd64) expected_go_sha=9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec ;;
+    1.26.11/arm64) expected_go_sha=6c2f29b458b5add0835f18b776f69c8881a6d88428f1484a6da55755e620757e ;;
     *) die "No pinned digest for cached Go toolchain ${GO_VERSION}/${ARCH}." ;;
   esac
   [ -f "${GO_RELEASE_CACHE}/${go_filename}" ] || die "Cached Go toolchain is missing: ${go_filename}."

@@ -117,7 +117,8 @@ func tableChartConfig(fields []string) string {
 }
 
 // chartConfigForQuestion selects a visualization only when the request names a
-// chart type and the controlled result has one category and one numeric field.
+// chart type and the controlled result has one category and up to four numeric
+// fields. Pie charts remain single-measure and never discard negative values.
 // The saved configuration contains field names, never query rows.
 func chartConfigForQuestion(question string, data *QueryData) string {
 	q := strings.ToLower(question)
@@ -143,48 +144,116 @@ func chartConfigForQuestion(question string, data *QueryData) string {
 			}
 		}
 	}
-	if kind == "" || len(data.Fields) != 2 || len(data.FieldsInfo) != 2 {
+	if kind == "" || len(data.Fields) < 2 || len(data.Fields) > 6 || len(data.FieldsInfo) != len(data.Fields) || len(data.Data) == 0 {
 		return tableChartConfig(data.Fields)
 	}
-	var category, measure string
+	category := ""
+	measures := make([]string, 0, 4)
+	seen := make(map[string]bool, len(data.Fields))
 	for i, field := range data.Fields {
-		if data.FieldsInfo[i].Name != field {
+		if field == "" || seen[field] || data.FieldsInfo[i].Name != field {
 			return tableChartConfig(data.Fields)
 		}
-		if !data.FieldsInfo[i].Numeric && len(data.Data) > 0 {
-			numeric := true
-			for _, row := range data.Data {
-				value := strings.TrimSpace(fmt.Sprint(row[field]))
-				n, err := strconv.ParseFloat(value, 64)
-				if value == "" || err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
-					numeric = false
-					break
-				}
+		seen[field] = true
+		numeric, present := true, false
+		for _, row := range data.Data {
+			if row[field] == nil {
+				continue
 			}
-			data.FieldsInfo[i].Numeric = numeric
+			if _, valid := chartNumber(row[field]); !valid {
+				numeric = false
+				break
+			}
+			present = true
 		}
-		if data.FieldsInfo[i].Numeric {
-			measure = field
+		data.FieldsInfo[i].Numeric = numeric && present
+		if numeric && present {
+			measures = append(measures, field)
 		} else {
+			if category != "" {
+				return tableChartConfig(data.Fields)
+			}
 			category = field
 		}
 	}
-	if category == "" || measure == "" {
+	// Identifier columns stay available in the raw table, but are not selected
+	// as default business measures when other numeric measures are present.
+	if len(measures) > 1 {
+		business := make([]string, 0, len(measures))
+		for _, field := range measures {
+			lower := strings.ToLower(field)
+			if lower != "id" && !strings.HasSuffix(lower, "_id") {
+				business = append(business, field)
+			}
+		}
+		if len(business) > 0 {
+			measures = business
+		}
+	}
+	if category == "" || len(measures) == 0 || len(measures) > 4 || (kind == "pie" && len(measures) != 1) {
 		return tableChartConfig(data.Fields)
+	}
+	if len(measures) > 1 {
+		// SQLBot expands marked measures into these synthetic fields. Do not
+		// overwrite a real result dimension or enter its prototype-key path.
+		for _, field := range data.Fields {
+			switch field {
+			case "sqlbot_auto_quota", "sqlbot_auto_series", "sqlbot_axis_format", "__proto__", "constructor", "prototype":
+				return tableChartConfig(data.Fields)
+			}
+		}
 	}
 	axis := map[string]any{}
 	if kind == "pie" {
-		axis["y"] = map[string]string{"name": measure, "value": measure}
+		positive := false
+		for _, row := range data.Data {
+			if row[measures[0]] == nil {
+				continue
+			}
+			n, valid := chartNumber(row[measures[0]])
+			if !valid || n < 0 {
+				return tableChartConfig(data.Fields)
+			}
+			positive = positive || n > 0
+		}
+		if !positive {
+			return tableChartConfig(data.Fields)
+		}
+		axis["y"] = map[string]string{"name": measures[0], "value": measures[0]}
 		axis["series"] = map[string]string{"name": category, "value": category}
 	} else {
 		axis["x"] = map[string]string{"name": category, "value": category}
-		axis["y"] = []map[string]string{{"name": measure, "value": measure}}
+		values := make([]map[string]string, 0, len(measures))
+		for _, measure := range measures {
+			values = append(values, map[string]string{"name": measure, "value": measure})
+		}
+		axis["y"] = values
+		if len(measures) > 1 {
+			// The original client derives per-axis flags from this root group;
+			// flags placed directly on y entries are overwritten when it renders.
+			axis["multi-quota"] = map[string]any{"name": "指标 / Measures", "value": measures}
+		}
 	}
 	raw, err := json.Marshal(map[string]any{"type": kind, "title": "", "axis": axis})
 	if err != nil {
 		return tableChartConfig(data.Fields)
 	}
 	return string(raw)
+}
+
+func chartNumber(value any) (float64, bool) {
+	if value == nil {
+		return 0, false
+	}
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "" || (text[0] != '-' && (text[0] < '0' || text[0] > '9')) || !json.Valid([]byte(text)) {
+		return 0, false
+	}
+	n, err := strconv.ParseFloat(text, 64)
+	if n == 0 && strings.ContainsAny(strings.SplitN(strings.ToLower(text), "e", 2)[0], "123456789") {
+		return 0, false
+	}
+	return n, err == nil && !math.IsNaN(n) && !math.IsInf(n, 0) && math.Abs(n) < 9007199254740991
 }
 
 func (service *Service) Record(ctx context.Context, p Principal, id ID, withData bool) (Record, error) {
