@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+# Package the independently verified production native artifacts; compile no code here.
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
+ARG TARGETARCH
+ARG VERSION
+ARG REVISION
+LABEL org.opencontainers.image.title="AgentSQL" \
+      org.opencontainers.image.source="https://github.com/cuipengdba/agentsql" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      cn.agentsql.delivery="verified-signed-native-artifacts"
+ENV LD_LIBRARY_PATH=/opt/yashandb-client/lib
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade --no-install-recommends ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system agentsql \
+    && useradd --system --gid agentsql --home-dir /var/lib/agentsql --shell /usr/sbin/nologin agentsql \
+    && mkdir -p /var/lib/agentsql /etc/agentsql \
+    && chown -R agentsql:agentsql /var/lib/agentsql /etc/agentsql
+COPY --chmod=0755 inputs/${TARGETARCH}/agentsql /usr/local/bin/agentsql
+COPY --chmod=0755 inputs/${TARGETARCH}/agentsqlctl /usr/local/bin/agentsqlctl
+COPY inputs/${TARGETARCH}/lib/ /opt/yashandb-client/lib/
+COPY config.yaml /etc/agentsql/config.yaml
+COPY LICENSE /usr/share/licenses/agentsql/LICENSE
+USER agentsql
+WORKDIR /var/lib/agentsql
+EXPOSE 7780
+HEALTHCHECK --interval=15s --timeout=3s --retries=3 CMD ["agentsqlctl", "health", "--url", "http://127.0.0.1:7780/healthz"]
+ENTRYPOINT ["agentsql"]
+CMD ["serve", "--config", "/etc/agentsql/config.yaml"]

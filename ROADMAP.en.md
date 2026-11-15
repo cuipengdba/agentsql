@@ -6,11 +6,18 @@
 
 ## Product positioning
 
-AgentSQL is a database security gateway and MCP Server for AI Agents. The core value is to connect Agent identity, tenant, database permissions, controlled execution, masking and auditing into a closed loop. The open source community version continues to follow the existing license of the repository; commercial delivery and SLA are subject to written agreement.
+AgentSQL combines an independent AI data Q&A agent and an independent MCP Server database security gateway. Q&A interprets questions and proposes SQL; the gateway decides controlled execution, masking and auditing. The MCP gateway can also serve other AI clients independently. The community edition follows the repository license; commercial delivery and SLAs require written agreement.
 
 Default rejection is the prerequisite for each database adaptation. Connection or PG protocol compatibility does not equate to full production support, nor does it automatically qualify for PostgreSQL B2 column-level authorization or B5 cross-request transaction capabilities. Re-verification is required after changes to the vendor version, compatibility mode, driver, licensing, and deployment topology.
 
 ## version status
+
+| version | Status | confirmed or target range |
+| --- | --- | --- |
+| v4.13.0 | Released ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.13.0)) | Dimensions, multiple-measure charts and defaults for independent Q&A; fixed same-package score 8/25. Unprovable empty-string numeric fields retain tables. [Acceptance and limits](docs/en/v4.13.0-acceptance.md). |
+
+<details>
+<summary>Historical releases and original acceptance (archive)</summary>
 
 | version | Status | confirmed or target range |
 | --- | --- | --- |
@@ -65,6 +72,8 @@ Default rejection is the prerequisite for each database adaptation. Connection o
 | v4.10.0 | Released ([official Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.10.0)) | Bounded real paths for authorized single-table filtering, grouping, ordering, and limiting; same-table follow-up; the unchanged original Q&A page, MCP SDK, basic assistant, and Type 4 embedding. The frozen 25-scenario contract passes Q1, I1, and H1: 3/25. Positive slices do not replace complete positive and negative acceptance. |
 | v4.11.0 | Released ([formal Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.11.0)) | Fixed conversation-deletion and history-export races; rechecked signed-package real-model queries, restarted history and basic/page embedding slices. The strict fixed matrix remains 3/25. See release notes for evidence and limits. |
 | v4.12.0 | Released ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.12.0)) | Post-receipt authorization checks, native history/download fencing, and same-package history/export/lifecycle acceptance; frozen matrix 6/25. [Evidence](docs/en/v4.12.0-acceptance.md). |
+
+</details>
 
 ## v3.1.0 design and acceptance scope
 

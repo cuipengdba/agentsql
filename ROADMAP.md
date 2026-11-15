@@ -6,11 +6,18 @@
 
 ## 产品定位
 
-AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价值是把 Agent 身份、租户、数据库权限、受控执行、脱敏和审计串成闭环。开源社区版继续遵循仓库现有许可证；商业交付与 SLA 以书面约定为准。
+AgentSQL 是独立 AI 问数 Agent 与独立 MCP Server 数据库安全网关的二合一产品。问数负责理解问题和提出 SQL，网关最终决定受控执行、脱敏和审计；也可独立作为其它 AI 客户端的 MCP 安全网关。 开源社区版继续遵循仓库许可证；商业交付与 SLA 以书面约定为准。
 
 默认拒绝是各数据库适配的前提。连接或 PG 协议兼容不等于完整生产支持，也不自动获得 PostgreSQL B2 列级授权或 B5 跨请求事务能力。厂商版本、兼容模式、驱动、许可和部署拓扑变化后需要重新验证。
 
 ## 版本状态
+
+| 版本 | 状态 | 已确认或目标范围 |
+| --- | --- | --- |
+| v4.13.0 | 已发布（[Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.13.0)） | 独立问数的维度/多指标图表与默认视图；固定同包场景8/25，当前网关空串数值保守回表格。[验收与边界](docs/v4.13.0-acceptance.md)。 |
+
+<details>
+<summary>历史已发布版本与原始验收（归档）</summary>
 
 | 版本 | 状态 | 已确认或目标范围 |
 | --- | --- | --- |
@@ -65,6 +72,8 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v4.10.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.10.0)） | 受权单表过滤、分组、排序、限量和同表追问，以及未修改原版问数页、MCP SDK、基本助手和 Type 4 嵌入的有界真实链路；固定 25 场景严格通过 Q1、I1、H1，共 3/25。其余正向切片不替代完整正负验收。 |
 | v4.11.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.11.0)） | 会话删除与历史导出竞态修复，签名包的真实模型问数、重启历史和基本/页面嵌入切片复验；固定矩阵严格通过仍为 3/25。完整证据及边界见发布说明。 |
 | v4.12.0 | 已发布 ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.12.0)) | 导出收据后的授权复核、原生历史与下载隔离、同包历史/导出/会话生命周期验收；固定矩阵6/25。[验收记录](docs/v4.12.0-acceptance.md)。 |
+
+</details>
 
 ## v3.1.0 设计与验收范围
 
