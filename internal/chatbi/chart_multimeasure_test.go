@@ -70,3 +70,30 @@ func TestPieMultipleMeasuresAndOverwideOrUntrustedChartFallBackToTable(t *testin
 		require.True(t, strings.Contains(raw, `"type":"table"`), raw)
 	}
 }
+
+func TestMultipleMeasureChartGroupsOriginalClientQuotasAndRejectsReservedDimensions(t *testing.T) {
+	data := QueryData{Fields: []string{"region", "sales", "cost"}, FieldsInfo: []FieldInfo{{Name: "region"}, {Name: "sales"}, {Name: "cost"}}, Data: []map[string]any{{"region": "east", "sales": 10, "cost": 5}}}
+	var chart struct {
+		Type string `json:"type"`
+		Axis struct {
+			Y          []map[string]string `json:"y"`
+			MultiQuota struct {
+				Name  string   `json:"name"`
+				Value []string `json:"value"`
+			} `json:"multi-quota"`
+		} `json:"axis"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(chartConfigForQuestion("画柱状图", &data)), &chart))
+	require.Len(t, chart.Axis.Y, 2)
+	require.Equal(t, "指标 / Measures", chart.Axis.MultiQuota.Name)
+	require.Equal(t, []string{"sales", "cost"}, chart.Axis.MultiQuota.Value, "SQLBot otherwise renders only y[0]")
+	for _, reserved := range []string{"sqlbot_auto_quota", "sqlbot_auto_series", "sqlbot_axis_format", "__proto__", "constructor", "prototype"} {
+		data.Fields[0], data.FieldsInfo[0].Name = reserved, reserved
+		data.Data[0] = map[string]any{reserved: "east", "sales": 10, "cost": 5}
+		var fallback struct {
+			Type string `json:"type"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(chartConfigForQuestion("画折线图", &data)), &fallback))
+		require.Equal(t, "table", fallback.Type, "reserved renderer dimension=%s", reserved)
+	}
+}

@@ -193,6 +193,16 @@ func chartConfigForQuestion(question string, data *QueryData) string {
 	if category == "" || len(measures) == 0 || len(measures) > 4 || (kind == "pie" && len(measures) != 1) {
 		return tableChartConfig(data.Fields)
 	}
+	if len(measures) > 1 {
+		// SQLBot expands marked measures into these synthetic fields. Do not
+		// overwrite a real result dimension or enter its prototype-key path.
+		for _, field := range data.Fields {
+			switch field {
+			case "sqlbot_auto_quota", "sqlbot_auto_series", "sqlbot_axis_format", "__proto__", "constructor", "prototype":
+				return tableChartConfig(data.Fields)
+			}
+		}
+	}
 	axis := map[string]any{}
 	if kind == "pie" {
 		positive := false
@@ -218,6 +228,11 @@ func chartConfigForQuestion(question string, data *QueryData) string {
 			values = append(values, map[string]string{"name": measure, "value": measure})
 		}
 		axis["y"] = values
+		if len(measures) > 1 {
+			// The original client derives per-axis flags from this root group;
+			// flags placed directly on y entries are overwritten when it renders.
+			axis["multi-quota"] = map[string]any{"name": "指标 / Measures", "value": measures}
+		}
 	}
 	raw, err := json.Marshal(map[string]any{"type": kind, "title": "", "axis": axis})
 	if err != nil {
