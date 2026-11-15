@@ -2,13 +2,18 @@
 
 **语言 / Language:** [简体中文](USER_GUIDE.md) | [English](en/USER_GUIDE.md)
 
-> 现行指南：适用于 v4.4.0 及兼容的 4.4.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行指南：适用于 v4.13.0 及兼容的 4.13.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
 
-> 本文说明 AgentSQL v4.4.0 的功能与操作。安装或拉取 v4.4.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v4.13.0 的功能与操作。安装或拉取 v4.13.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v4.4.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v4.4.0 发布说明](release-notes-v4.4.0.md)和[设计与验收记录](v4.4.0-design.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v4.13.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v4.13.0 发布说明](https://github.com/cuipengdba/agentsql/releases/tag/v4.13.0)和[设计与验收记录](v4.13.0-design.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
 控制台登录页和登录后右上角的语言按钮可在中文和英文之间切换，选择会保存在当前浏览器；`?lang=en` 或 `?lang=zh` 可指定首次打开语言。左侧菜单在有效视口高度不足时可以独立滚动，聚焦菜单后也可用键盘访问底部选项。语言切换仅改变界面文案，不修改 SQL、查询结果和审计记录。完整英文文档可通过文首语言链接访问；版本能力以对应验收记录为准。
+
+
+## 当前问数与网关使用
+
+从[三种使用方式](PRODUCT_MODES.md)分别配置独立问数、MCP Server和联合使用。问数结果可以选择维度和最多四指标；切换不执行SQL，重开重新授权。17项签名资产及外层传输包须用独立可信公钥验签。以下历史版本章节只表示功能引入条件，不扩大当前发布的实测声明；以[v4.13.0验收记录](https://github.com/cuipengdba/agentsql/releases/tag/v4.13.0)为准。
 
 ## v3.9.0 Oracle 与 SQL Server 受控读取
 
@@ -889,6 +894,4 @@ agentsqlctl upgrade apply --manifest-url https://example.org/releases/manifest.j
 
 数据源页面可在已授权、当前可见的 PostgreSQL/MySQL 服务端绑定中管理选表、表和字段备注及表关系。先勾选允许显示的表，再读取字段并保存关系；取消选表或撤权后重新读取，旧关系不能继续授权查询。关系只给本机模型提供 JOIN 提示，每条生成的 SQL 仍经过当前网关权限、执行、脱敏和持久审计。页面最多编辑 64 张可见表。文件数据源和其他数据库不因此获得相同能力。
 
-v4.5.0 只对 SQLBot 社区版 v1.10.3 的普通问数页、原版 Python MCP SDK、单数据源基本游客助手与 Type 4 页面嵌入，在指定合成场景完成验收。其余社区页面、API、嵌入方式和真实业务系统切换尚未验收；不得据此宣称完整兼容或零改动切换。准确范围见 [v4.5.0 GitHub 发布说明](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0)。
-
-v4.6.0 新增固定原版 Type 1 高级助手的限定路径：运营方登记私有第三方目录，把目录 ID 映射为已有受权网关别名，并在完成宿主证书、来源和非管理员用户配置后启用独立助手监听器。目录不能创建设备连接或代替当前授权；部署步骤见 [Type 1 设计与配置](v4.6.0-design.md#生产部署边界)，实测范围见 [v4.6.0 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0)。角色、多用户与非空白名单活动规则及其他社区页面/API 仍不在本版承诺范围。
+当前发布的问数、MCP SDK、基本助手、Type 4 页面嵌入及活动权限均以[三种使用方式](PRODUCT_MODES.md)与[v4.13.0精确验收记录](https://github.com/cuipengdba/agentsql/releases/tag/v4.13.0)为准。Type 1 的目录登记和独立监听器配置见[部署设计](v4.6.0-design.md#生产部署边界)；配置成功不等于本版完整业务验收。未在用户真实业务系统验证，不宣称完整兼容或零改动切换。
