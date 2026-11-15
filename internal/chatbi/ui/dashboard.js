@@ -1,4 +1,4 @@
-import { chartSeries, renderChart } from './chart.js';
+import { chartSeries, renderChart, pieAllowed } from './chart.js';
 
 export function setupDashboard({ api, t, node, get }) {
   let active = false, selected = null, items = [], records = [], results = {}, activeTab = '', preview = false;
@@ -94,7 +94,7 @@ export function setupDashboard({ api, t, node, get }) {
         else {
           const series = chartSeries(data);
           if (card.kind === 'table') shell.append(renderTable(data));
-          else if (series && (card.kind !== 'pie' || series.items.some(item => item.value > 0))) shell.append(renderChart(series, card.kind));
+          else if (series && (card.kind !== 'pie' || pieAllowed(series))) shell.append(renderChart(series, card.kind));
           else shell.append(node('p', t('dashboardNoChart'), 'dashboard-note'));
           shell.append(node('small', `${t('audit')} #${data.audit_id}`, 'dashboard-audit'));
         }
