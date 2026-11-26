@@ -100,6 +100,10 @@ type AST struct {
 	Functions          []string
 	Operations         []string
 	Explain            *ExplainInfo
+
+	// ReferencedColumns contains PostgreSQL SELECT column references without
+	// declaration-only output aliases. Keep Columns for existing guards.
+	ReferencedColumns []string `json:"-"`
 }
 
 // ProjectionLineage describes one SQL target-list item. Variadic items may

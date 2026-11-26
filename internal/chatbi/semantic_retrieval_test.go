@@ -246,3 +246,37 @@ func TestAskPreservesLiteralBusinessTermsWhenKeywordsDiffer(t *testing.T) {
 		t.Fatalf("a disabled term reached the model: %#v", capture.hints)
 	}
 }
+
+func TestPostgresSQLExampleKeepsAggregateAliasAndChecksRealColumns(t *testing.T) {
+	ctx := context.Background()
+	service, principal, _, _, _ := serviceFixture(t)
+	user, revision, err := service.Store.User(ctx, principal.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user.Admin = true
+	if err := service.Store.put(ctx, userKey(user.ID), user, revision); err != nil {
+		t.Fatal(err)
+	}
+	principal.User = user
+	const question = "What is the regional sales total?"
+	const query = "SELECT pg_catalog.sum(amount) AS total_amount FROM public.sales WHERE region = 'east'"
+	for _, sql := range []string{query, "SELECT pg_catalog.sum(private_amount) AS total_amount FROM public.sales"} {
+		example := SQLExample{Workspace: 1, Datasource: 10, Question: question, Description: sql, Enabled: true}
+		if _, err := service.SaveExample(ctx, principal, example); err != nil {
+			t.Fatal(err)
+		}
+	}
+	visible := []Column{
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+	}
+	examples, err := service.SafeExamples(ctx, principal, "10", "pg", visible, question)
+	if err != nil || len(examples) != 1 || examples[0].SQL != query {
+		t.Fatalf("expected only the authorized aggregate example with its output alias: %#v, %v", examples, err)
+	}
+	examples, err = service.SafeExamples(ctx, principal, "10", "pg", visible[:1], question)
+	if err != nil || len(examples) != 0 {
+		t.Fatalf("sample with a no-longer-visible filter field was included: %#v, %v", examples, err)
+	}
+}
