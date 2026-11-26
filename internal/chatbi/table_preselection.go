@@ -52,6 +52,14 @@ func selectModelTablesIndexedWithKeywords(ctx context.Context, store *Store, p P
 		})
 }
 
+func hasUniqueBusinessTableTitle(question string, columns []Column, remarks []RemarkHint, limit int) bool {
+	if limit < 1 || len(question) > 4096 {
+		return false
+	}
+	tables, _, ok := authorizedTableCandidates(columns, remarks, limit)
+	return ok && len(explicitTableMentions(question, tables)) == 0 && uniqueTableTitleMention(question, tables) != ""
+}
+
 // A first question must not wait for a cold, large local index. On the local
 // budget expiry, use the currently authorized schema with an optional
 // literal table or business-name match from the question.
