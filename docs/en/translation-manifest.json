@@ -1365,6 +1365,11 @@
       "source": "docs/v4.15.0-acceptance.md",
       "english": "docs/en/v4.15.0-acceptance.md",
       "source_sha256": "993b18ad0e5cebb6444b0675c27d48590452e6ef29bfa859c4ba7f0fec56ae05"
+    },
+    {
+      "source": "docs/v4.16.0-design.md",
+      "english": "docs/en/v4.16.0-design.md",
+      "source_sha256": "7744464fcf63c40f80abd888d3c6c23466e1fa8f3291083722064a13e90344b2"
     }
   ]
 }
