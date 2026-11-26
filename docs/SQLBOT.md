@@ -2,9 +2,11 @@
 
 [中文](SQLBOT.md) | [English](en/SQLBOT.md)
 
-v3.2.0 沿用配置版本 2 的真实登录用户绑定，并把指定 MySQL 只读问数加入 PostgreSQL 路径。适配目标固定为 SQLBot **v1.10.2**，源码基准为 `aa41fc1033bb974a703df9200a98ec8b9eec5f25`。完成的真链路项目见 [v3.2.0 验收记录](v3.2.0-acceptance.md)；兼容检查通过不等于所有模型、图表和 SQL 都经过验证。
+AgentSQL 提供独立问数 Agent 与独立 MCP Server 数据库安全网关。使用 AgentSQL 原生问数时，从模型和个人绑定配置开始。[三种使用方式](PRODUCT_MODES.md) · [原生问数配置](CHATBI.md)
 
-以上是历史托管适配的固定基线。当前 v4.4.0 还提供不依赖 SQLBot 运行时的 [Go 原生问数服务](CHATBI.md)，并对 SQLBot 社区版 v1.10.3 的指定原版页面做本机对照；完整页面、API/MCP/嵌入兼容尚未完成，范围见 [v4.4.0 发布说明](release-notes-v4.4.0.md)。
+当前的能力验收以 SQLBot Community **v1.10.3** 的固定 25 项问数矩阵和各次发布证据为准。[评分合同](sqlbot-community-chatbi-score-v1103.md) · [正式发布](https://github.com/cuipengdba/agentsql/releases)
+
+下文适用于历史托管适配器，使用配置版本 2，把 SQLBot **v1.10.2** 的指定 PostgreSQL/MySQL 只读请求交给网关。固定上游源码为 `aa41fc1033bb974a703df9200a98ec8b9eec5f25`。[托管适配验收](v3.2.0-acceptance.md)
 
 ```text
 SQLBot 普通账号登录 → 工作空间与数据源权限 → 自然语言生成 SQL
@@ -16,7 +18,7 @@ SQLBot 普通账号登录 → 工作空间与数据源权限 → 自然语言生
 
 ## 支持范围与信任边界
 
-- 本版托管绑定支持已验收的 **PostgreSQL/MySQL 只读查询**。不支持写操作、B5、动态数据源或 Excel 直连。SQLBot 自身的 PostgreSQL 元数据库仍由 SQLBot 使用，与业务数据库分开。
+- 历史托管绑定仅支持已登记 PostgreSQL/MySQL 业务数据源的已验收 **只读查询**。SQLBot 自身的 PostgreSQL 元数据库独立部署。
 - 仅接受 SQLBot 服务端认证后的普通登录身份（`X-SQLBOT-TOKEN`）。拒绝 assistant、embedded 和 ask token 身份。不能把浏览器、模型、请求正文自行提供的用户 ID 当成认证身份。
 - 一条绑定对应一个 SQLBot 工作空间、数据源名称和用户，并映射一个 AgentSQL 人员、只读 Agent 和 PostgreSQL 或 MySQL 数据源。MySQL 的发现 schema 必须等于该数据源的数据库名。不同人员需要不同数据范围时，应分配不同 Agent 策略。SQLBot 服务端和连接凭据属于可信部署边界：持有凭据的服务器能为该绑定指定的人员取得令牌。
 - 每次操作重新解析绑定；每个 MCP 请求检查绑定状态和修订号、人员权限、租户状态及 Agent。禁用、修改和轮换使旧令牌失效。即使网关没有全局要求人员委托令牌，配置版本 2 仍验证其专用令牌；普通人员令牌原有规则不变。

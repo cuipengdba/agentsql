@@ -2,9 +2,11 @@
 
 [Simplified Chinese](../SQLBOT.md) | [English](SQLBOT.md)
 
-v3.2.0 keeps configuration version 2 and its signed-in user bindings, and adds specified MySQL read-only questions alongside PostgreSQL. The adapter targets SQLBot **v1.10.2**, source baseline `aa41fc1033bb974a703df9200a98ec8b9eec5f25`. See the [v3.2.0 acceptance record](v3.2.0-acceptance.md) for completed live tests. Passing a compatibility check does not establish coverage for every model, chart, or SQL statement.
+AgentSQL provides an independent Q&A agent and an independent MCP Server database security gateway. For native Q&A, start with the model configuration and personal bindings. [Product modes](PRODUCT_MODES.md) · [Native Q&A configuration](CHATBI.md)
 
-That is the pinned baseline for the historical managed adapter. The current v4.4.0 release also offers a [native Go Q&A service](CHATBI.md) without a SQLBot runtime and compares selected unchanged SQLBot Community v1.10.3 pages locally. Full page, API/MCP and embed compatibility remains open; see the [v4.4.0 release notes](release-notes-v4.4.0.md) for scope.
+Current acceptance uses the fixed 25-case SQLBot Community **v1.10.3** Q&A matrix and evidence for each release. [Scoring contract](sqlbot-community-chatbi-score-v1103.md) · [Formal releases](https://github.com/cuipengdba/agentsql/releases)
+
+The steps below cover the historical managed adapter. It uses configuration version 2 to send selected read-only PostgreSQL and MySQL queries from SQLBot **v1.10.2** to the gateway. The upstream source is fixed at `aa41fc1033bb974a703df9200a98ec8b9eec5f25`. [Managed adapter acceptance](v3.2.0-acceptance.md)
 
 ```text
 SQLBot ordinary login → workspace and datasource permissions → natural-language SQL
@@ -16,7 +18,7 @@ SQLBot ordinary login → workspace and datasource permissions → natural-langu
 
 ## Scope and trust boundaries
 
-- Managed bindings support the accepted **PostgreSQL/MySQL read-only queries**. Writes, B5, dynamic datasources, and direct Excel access are excluded. SQLBot continues to use its own PostgreSQL metadata database, separately from business databases.
+- The historical managed binding covers verified **read-only queries** against registered PostgreSQL and MySQL business datasources. SQLBot uses a separate PostgreSQL metadata database.
 - Only ordinary SQLBot identities authenticated on its server through `X-SQLBOT-TOKEN` are accepted. Assistant, embedded, and ask-token identities are rejected. Browser, model, or request-body user IDs are not authentication evidence.
 - Each binding maps one SQLBot workspace, datasource name, and user to one AgentSQL user, read-only Agent, and PostgreSQL or MySQL datasource. For MySQL, the discovery schema must equal the datasource database name. Assign different Agent policies when users need different data scopes. The SQLBot server and connector credential are trusted deployment components: a server holding a credential can obtain a token for the user fixed in that binding.
 - Every operation resolves the current binding; every MCP request validates its status and revision, user permissions, tenant status, and Agent. Disabling, modifying, or rotating the binding invalidates old tokens. Configuration version 2 validates its dedicated human token even when human delegation is not globally required. Existing ordinary delegation rules remain unchanged.
