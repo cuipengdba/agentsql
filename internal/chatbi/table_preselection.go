@@ -115,7 +115,7 @@ func selectExplicitTableFallback(question, keywords string, columns []Column,
 		tables[index].keyword = scoreTableKeywords(keywords, tables[index], fieldComments[tables[index].key])
 	}
 	rankModelTables(tables, 0, true)
-	columns, remarks = projectRankedTableSchema(tables, remarks, limit)
+	columns, remarks = projectRankedTableSchema(tables, columns, remarks, limit, len(explicit) > 1)
 	return columns, remarks, nil
 }
 
@@ -201,19 +201,28 @@ func selectModelTablesWithKeywords(ctx context.Context, model EmbeddingModel, qu
 		}
 	}
 	rankModelTables(tables, alpha, keywordEnabled)
-	columns, remarks = projectRankedTableSchema(tables, remarks, limit)
+	columns, remarks = projectRankedTableSchema(tables, columns, remarks, limit, len(explicit) > 1)
 	return columns, remarks, nil
 }
 
-// Present columns in ranked table order so similar lower-ranked tables do
-// not precede the intended table in the generator's schema.
-func projectRankedTableSchema(tables []modelTableCandidate, remarks []RemarkHint, limit int) ([]Column, []RemarkHint) {
+// Present the most relevant table first. When the question explicitly names
+// multiple tables, keep their existing authorized schema order.
+func projectRankedTableSchema(tables []modelTableCandidate, columns []Column, remarks []RemarkHint,
+	limit int, preserveSchemaOrder bool) ([]Column, []RemarkHint) {
 	selected := make(map[string]bool)
 	var filteredColumns []Column
 	for _, table := range tables {
 		if len(selected) < limit || table.explicit {
 			selected[table.key] = true
 			filteredColumns = append(filteredColumns, table.fields...)
+		}
+	}
+	if preserveSchemaOrder {
+		filteredColumns = filteredColumns[:0]
+		for _, column := range columns {
+			if selected[column.Schema+"\x00"+column.Table] {
+				filteredColumns = append(filteredColumns, column)
+			}
 		}
 	}
 	filteredRemarks := make([]RemarkHint, 0, len(remarks))
@@ -295,9 +304,6 @@ func rankModelTables(tables []modelTableCandidate, alpha float64, keywordEnabled
 	sort.SliceStable(tables, func(i, j int) bool {
 		if tables[i].explicit != tables[j].explicit {
 			return tables[i].explicit
-		}
-		if tables[i].explicit {
-			return tables[i].index < tables[j].index
 		}
 		if keywordEnabled && (tables[i].keyword == 1) != (tables[j].keyword == 1) {
 			return tables[i].keyword == 1
