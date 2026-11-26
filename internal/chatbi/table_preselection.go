@@ -296,6 +296,9 @@ func rankModelTables(tables []modelTableCandidate, alpha float64, keywordEnabled
 		if tables[i].explicit != tables[j].explicit {
 			return tables[i].explicit
 		}
+		if tables[i].explicit {
+			return tables[i].index < tables[j].index
+		}
 		if keywordEnabled && (tables[i].keyword == 1) != (tables[j].keyword == 1) {
 			return tables[i].keyword == 1
 		}
