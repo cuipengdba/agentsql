@@ -270,6 +270,36 @@ func TestAdminDatasourcesAndPing(t *testing.T) {
 	require.NotContains(t, body, "connection refused")
 	require.NotContains(t, body, "host.internal")
 	require.NotContains(t, body, "error_code")
+
+	status, body = fixture.request(http.MethodGet, "/api/v1/audit?datasource_id=ds-1", fixture.adminToken, "")
+	require.Equal(t, http.StatusOK, status, body)
+	var audits struct {
+		Data struct {
+			List []auditView `json:"list"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &audits))
+	require.Len(t, audits.Data.List, 6)
+	require.Equal(t, string(model.DecisionAllow), audits.Data.List[5].Decision)
+	require.Nil(t, audits.Data.List[5].ErrorCode)
+	require.Equal(t, string(model.DecisionError), audits.Data.List[0].Decision)
+	require.Equal(t, string(executor.DBErrorCodeGatewayInternal), *audits.Data.List[0].ErrorCode)
+	for _, event := range audits.Data.List {
+		require.Equal(t, audit.ActionDatasourcePing, *event.Action)
+		require.NotEmpty(t, *event.ActorID)
+		require.Equal(t, "ds-1", *event.DatasourceID)
+		require.Nil(t, event.SQLRaw)
+		require.Nil(t, event.ErrorMsg)
+		require.Nil(t, event.DetailsJSON)
+	}
+	require.NotContains(t, body, "driver-secret")
+	require.NotContains(t, body, "host.internal")
+
+	fixture.pinger.err = nil
+	fixture.runtime.ManagementAudit = nil
+	status, body = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/ping", fixture.adminToken, "")
+	require.Equal(t, http.StatusServiceUnavailable, status, body)
+	require.NotContains(t, body, `"ok":true`)
 }
 
 func TestAdminValidationPoliciesRulesMasks(t *testing.T) {
