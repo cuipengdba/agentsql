@@ -115,25 +115,8 @@ func selectExplicitTableFallback(question, keywords string, columns []Column,
 		tables[index].keyword = scoreTableKeywords(keywords, tables[index], fieldComments[tables[index].key])
 	}
 	rankModelTables(tables, 0, true)
-	selected := make(map[string]bool)
-	for _, table := range tables {
-		if len(selected) < limit || table.explicit {
-			selected[table.key] = true
-		}
-	}
-	filteredColumns := make([]Column, 0, len(columns))
-	for _, column := range columns {
-		if selected[column.Schema+"\x00"+column.Table] {
-			filteredColumns = append(filteredColumns, column)
-		}
-	}
-	filteredRemarks := make([]RemarkHint, 0, len(remarks))
-	for _, remark := range remarks {
-		if selected[remark.Schema+"\x00"+remark.Table] {
-			filteredRemarks = append(filteredRemarks, remark)
-		}
-	}
-	return filteredColumns, filteredRemarks, nil
+	columns, remarks = projectRankedTableSchema(tables, remarks, limit)
+	return columns, remarks, nil
 }
 
 func selectModelTablesWithVectors(ctx context.Context, model EmbeddingModel, question string, columns []Column,
@@ -218,16 +201,19 @@ func selectModelTablesWithKeywords(ctx context.Context, model EmbeddingModel, qu
 		}
 	}
 	rankModelTables(tables, alpha, keywordEnabled)
+	columns, remarks = projectRankedTableSchema(tables, remarks, limit)
+	return columns, remarks, nil
+}
+
+// Present columns in ranked table order so similar lower-ranked tables do
+// not precede the intended table in the generator's schema.
+func projectRankedTableSchema(tables []modelTableCandidate, remarks []RemarkHint, limit int) ([]Column, []RemarkHint) {
 	selected := make(map[string]bool)
+	var filteredColumns []Column
 	for _, table := range tables {
 		if len(selected) < limit || table.explicit {
 			selected[table.key] = true
-		}
-	}
-	filteredColumns := make([]Column, 0, len(columns))
-	for _, column := range columns {
-		if selected[column.Schema+"\x00"+column.Table] {
-			filteredColumns = append(filteredColumns, column)
+			filteredColumns = append(filteredColumns, table.fields...)
 		}
 	}
 	filteredRemarks := make([]RemarkHint, 0, len(remarks))
@@ -236,7 +222,7 @@ func selectModelTablesWithKeywords(ctx context.Context, model EmbeddingModel, qu
 			filteredRemarks = append(filteredRemarks, remark)
 		}
 	}
-	return filteredColumns, filteredRemarks, nil
+	return filteredColumns, filteredRemarks
 }
 
 // authorizedTableCandidates is shared by live preselection and background

@@ -175,8 +175,8 @@ func TestExplicitColdFallbackKeepsFullSchemaWhenQuestionIsAmbiguous(t *testing.T
 
 func TestColdFallbackUsesUniqueAuthorizedBusinessTitle(t *testing.T) {
 	columns := []Column{
-		{Schema: "public", Table: "orders", Name: "amount", DataType: "numeric"},
 		{Schema: "public", Table: "forecast", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "orders", Name: "amount", DataType: "numeric"},
 		{Schema: "public", Table: "archive", Name: "amount", DataType: "numeric"},
 	}
 	remarks := []RemarkHint{
@@ -190,6 +190,10 @@ func TestColdFallbackUsesUniqueAuthorizedBusinessTitle(t *testing.T) {
 	if err != nil || len(selected) != 1 || selected[0].Table != "orders" ||
 		len(selectedRemarks) != 1 || selectedRemarks[0].Table != "orders" {
 		t.Fatalf("unique authorized title did not retain the correct schema: %v %v %v", selected, selectedRemarks, err)
+	}
+	selected, _, err = selectExplicitTableFallback(question, "forecast", columns, remarks, 2, true)
+	if err != nil || len(selected) != 2 || selected[0].Table != "orders" || selected[1].Table != "forecast" {
+		t.Fatalf("an authorized companion preceded the named business table: %v %v", selected, err)
 	}
 
 	for _, question := range []string{"比较实际销售订单明细和销售订单预测", "销售金额是多少？"} {
