@@ -966,7 +966,7 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		}
 		authorizedColumns := columns
 		authorizedRemarks := remarks
-		semanticQuery := question
+		vocabularyQuery := question
 		if settings.Embedding.TableEnabled && service.Embedding != nil {
 			keywords := question
 			if settings.Embedding.KeywordEnabled {
@@ -995,7 +995,7 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 						return err
 					}
 					if extracted != "" {
-						semanticQuery = extracted
+						vocabularyQuery += "\n" + extracted
 						keywords, err = service.expandTableKeywords(ctx, p, chat.Datasource, extracted)
 						if err != nil {
 							return err
@@ -1029,11 +1029,11 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		if err := check(ctx); err != nil {
 			return err
 		}
-		hints, err := service.Vocabulary(ctx, p, chat.Datasource, semanticQuery)
+		hints, err := service.Vocabulary(ctx, p, chat.Datasource, vocabularyQuery)
 		if err != nil {
 			return err
 		}
-		hints, err = relationHintsForModel(binding, columns, hints)
+		hints, err = relationHintsForModel(binding, authorizedColumns, columns, hints)
 		if err != nil {
 			return err
 		}
@@ -1046,7 +1046,10 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		}
 		stage = "model"
 		// Knowledge retrieval can run local inference after schema discovery.
-		// A changed rule must close before the old schema reaches the generator.
+		// Recheck the binding and rules before sending the captured schema.
+		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+			return err
+		}
 		if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
 			return err
 		}

@@ -184,3 +184,65 @@ func TestModelExampleContextIsIllustrativeOnly(t *testing.T) {
 		t.Fatalf("sample context model call failed: %v", err)
 	}
 }
+
+type rewritingSemanticCapture struct {
+	semanticCapture
+	extractions int
+}
+
+func (capture *rewritingSemanticCapture) ExtractTableKeywords(context.Context, ModelConfig, string, []TurnContext) (string, error) {
+	capture.extractions++
+	return "sales, amount", nil
+}
+
+func TestAskPreservesLiteralBusinessTermsWhenKeywordsDiffer(t *testing.T) {
+	ctx := context.Background()
+	service, principal, gateway, _, token := serviceFixture(t)
+	gateway.columns = []Column{
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "weather", Name: "temperature", DataType: "numeric"},
+	}
+	term := Terminology{
+		ID: 17, Word: "星桥单", Description: "Only orders recorded as completed.",
+		Enabled: true, SpecificDS: true, DatasourceIDs: []int64{10},
+	}
+	if err := service.Store.put(ctx, semanticKey("terminology", "1", term.ID), term, 0); err != nil {
+		t.Fatal(err)
+	}
+	settings := defaultChatSettings()
+	settings.Embedding.Enabled = false // Isolate literal retrieval from vector similarity.
+	settings.Embedding.TableCount = 1
+	if err := service.Store.put(ctx, chatSettingsKey(), settings, 0); err != nil {
+		t.Fatal(err)
+	}
+	capture := &rewritingSemanticCapture{}
+	service.Model = capture
+	service.Embedding = tableFixtureEmbedding{}
+	question := "用 sales 计算星桥单的金额"
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+
+	ask := func() {
+		t.Helper()
+		chat, err := service.Start(ctx, principal, "10", question, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.Ask(ctx, principal, chat.ID, question, check, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ask()
+	if capture.extractions != 1 || len(capture.hints) != 1 || len(capture.hints[0]) != 1 ||
+		capture.hints[0][0].Word != term.Word {
+		t.Fatalf("keyword extraction dropped a current literal term: %#v", capture.hints)
+	}
+
+	term.Enabled = false
+	if err := service.Store.put(ctx, semanticKey("terminology", "1", term.ID), term, 1); err != nil {
+		t.Fatal(err)
+	}
+	ask()
+	if capture.extractions != 2 || len(capture.hints) != 2 || len(capture.hints[1]) != 0 {
+		t.Fatalf("a disabled term reached the model: %#v", capture.hints)
+	}
+}

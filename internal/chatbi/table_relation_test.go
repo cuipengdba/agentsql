@@ -136,3 +136,57 @@ func TestAskUsesOnlyCurrentTableRelationsAsNonAuthoritativeHints(t *testing.T) {
 	require.Contains(t, model.hints[0].Description, "not authorization")
 	require.Equal(t, 1, base.queries)
 }
+
+func TestAskProjectsRegisteredRelationsAfterTablePreselection(t *testing.T) {
+	ctx := context.Background()
+	service, principal, gateway, _, token := serviceFixture(t)
+	gateway.columns = []Column{
+		{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "orders", Name: "sales_region", DataType: "text"},
+		{Schema: "public", Table: "weather", Name: "region", DataType: "text"},
+	}
+	model := &relationCaptureModel{}
+	service.Model = model
+	service.Embedding = tableFixtureEmbedding{}
+	settings := defaultChatSettings()
+	settings.Embedding.TableCount = 1
+	require.NoError(t, service.Store.put(ctx, chatSettingsKey(), settings, 0))
+
+	binding, revision, _, err := service.bindingSnapshot(ctx, principal, "10")
+	require.NoError(t, err)
+	graph := strings.TrimSpace(relationTestGraph("10"))
+	orders := browserTableID("10", "public", "orders")
+	weather := browserTableID("10", "public", "weather")
+	binding.TableRelations = strings.TrimSuffix(graph, "]") + fmt.Sprintf(
+		`,{"id":"%d","shape":"er-rect","position":{"x":0,"y":0}},
+		{"shape":"edge","source":{"cell":"%d","port":"%d"},"target":{"cell":"%d","port":"%d"}}]`,
+		weather, orders, browserFieldID(orders, "sales_region"), weather, browserFieldID(weather, "region"))
+	require.NoError(t, service.Store.put(ctx, bindingKey(principal, "10"), binding, revision))
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+
+	chat, err := service.Start(ctx, principal, "10", "relations", 0)
+	require.NoError(t, err)
+	_, err = service.Ask(ctx, principal, chat.ID, "sales and orders", check, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, model.calls)
+	require.Len(t, model.hints, 1)
+	require.Contains(t, model.hints[0].Description, "public.sales.region relates to public.orders.sales_region")
+	require.Equal(t, 1, gateway.queries)
+
+	chat, err = service.Start(ctx, principal, "10", "single table", 0)
+	require.NoError(t, err)
+	_, err = service.Ask(ctx, principal, chat.ID, "sales", check, nil)
+	require.NoError(t, err)
+	require.Equal(t, 2, model.calls)
+	require.Empty(t, model.hints)
+	require.Equal(t, 2, gateway.queries)
+
+	gateway.columns = gateway.columns[:3]
+	chat, err = service.Start(ctx, principal, "10", "stale relation", 0)
+	require.NoError(t, err)
+	_, err = service.Ask(ctx, principal, chat.ID, "sales and orders", check, nil)
+	require.ErrorIs(t, err, ErrGateway)
+	require.Equal(t, 2, model.calls)
+	require.Equal(t, 2, gateway.queries)
+}

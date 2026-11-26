@@ -31,6 +31,10 @@ type relationEdge struct {
 	targetTable, targetField int64
 }
 
+type tableRelation struct {
+	source, target Column
+}
+
 func relationNumericID(raw json.RawMessage) (int64, bool) {
 	if len(raw) == 0 {
 		return 0, false
@@ -45,7 +49,7 @@ func relationNumericID(raw json.RawMessage) (int64, bool) {
 	return id, err == nil && id > 0 && id <= maxSQLBotBrowserID && strconv.FormatInt(id, 10) == value
 }
 
-func relationGraph(binding Binding, columns []Column, input []relationInputCell) ([]map[string]any, []SemanticHint, error) {
+func relationGraph(binding Binding, columns []Column, input []relationInputCell) ([]map[string]any, []tableRelation, error) {
 	if len(input) > 768 {
 		return nil, nil, ErrGateway
 	}
@@ -95,7 +99,7 @@ func relationGraph(binding Binding, columns []Column, input []relationInputCell)
 	if len(nodes) > 256 {
 		return nil, nil, ErrGateway
 	}
-	var hints []SemanticHint
+	var relations []tableRelation
 	edges := make(map[relationEdge]bool)
 	for _, cell := range input {
 		if cell.Shape == "er-rect" {
@@ -124,13 +128,7 @@ func relationGraph(binding Binding, columns []Column, input []relationInputCell)
 			"source": map[string]any{"cell": strconv.FormatInt(sourceTable, 10), "port": strconv.FormatInt(sourceField, 10)},
 			"target": map[string]any{"cell": strconv.FormatInt(targetTable, 10), "port": strconv.FormatInt(targetField, 10)},
 		})
-		if len(hints) < 8 {
-			source, target := byID[sourceTable], byID[targetTable]
-			hints = append(hints, SemanticHint{Word: "table relationship",
-				Description: source.schema + "." + source.name + "." + sourceColumn.Name +
-					" relates to " + target.schema + "." + target.name + "." + targetColumn.Name +
-					"; suggestion only, not authorization"})
-		}
+		relations = append(relations, tableRelation{source: sourceColumn, target: targetColumn})
 	}
 	if len(edges) > 512 {
 		return nil, nil, ErrGateway
@@ -139,10 +137,10 @@ func relationGraph(binding Binding, columns []Column, input []relationInputCell)
 	if err != nil || len(encoded) > 1<<20 {
 		return nil, nil, ErrGateway
 	}
-	return result, hints, nil
+	return result, relations, nil
 }
 
-func relationHintsForModel(binding Binding, columns []Column, vocabulary []SemanticHint) ([]SemanticHint, error) {
+func relationHintsForModel(binding Binding, authorized, selected []Column, vocabulary []SemanticHint) ([]SemanticHint, error) {
 	if binding.TableRelations == "" {
 		return vocabulary, nil
 	}
@@ -153,15 +151,28 @@ func relationHintsForModel(binding Binding, columns []Column, vocabulary []Seman
 	if json.Unmarshal([]byte(binding.TableRelations), &stored) != nil {
 		return nil, ErrGateway
 	}
-	_, relations, err := relationGraph(binding, columns, stored)
+	// Validate the stored graph against live permissions before projecting
+	// only relationships whose endpoints fit this question's model schema.
+	_, relations, err := relationGraph(binding, authorized, stored)
 	if err != nil {
 		return nil, err
+	}
+	visible := make(map[Column]bool, len(selected))
+	for _, column := range selected {
+		visible[column] = true
 	}
 	for _, relation := range relations {
 		if len(vocabulary) == 8 {
 			break
 		}
-		candidate := append(append([]SemanticHint(nil), vocabulary...), relation)
+		if !visible[relation.source] || !visible[relation.target] {
+			continue
+		}
+		hint := SemanticHint{Word: "table relationship",
+			Description: relation.source.Schema + "." + relation.source.Table + "." + relation.source.Name +
+				" relates to " + relation.target.Schema + "." + relation.target.Table + "." + relation.target.Name +
+				"; suggested equality join only, not authorization"}
+		candidate := append(append([]SemanticHint(nil), vocabulary...), hint)
 		encoded, err := json.Marshal(candidate)
 		if err != nil {
 			return nil, ErrUnavailable
