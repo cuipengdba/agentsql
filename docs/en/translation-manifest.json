@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "31cdd7c0f206201dbe0f1be1f74e2362405d2d08ce86391a39d8bedcc2440928"
+      "source_sha256": "2c6cc668336663c4e12b64ad4d33d64775e98b4c162a160510b044e75e3f9d30"
     },
     {
       "source": "CHANGELOG.md",
@@ -14,7 +14,7 @@
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "f9c344bfa32798ce4de1f2e581fc35ba62b5967da9a6457ac5eecfd8831629d9"
+      "source_sha256": "5f1f84e8c8a341e6c7f870de9279440582609607e488ce455ab941b0df11909c"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -224,7 +224,7 @@
     {
       "source": "docs/README.md",
       "english": "docs/en/README.md",
-      "source_sha256": "383d6b7b79c22e67c8a56f4a26eecfffe6ca2c5f3af121ce7777857f5a344753"
+      "source_sha256": "80800e29611ab091b08d315f75e277803ccb9f10f3589dcc1b5c8326b3a4e2b4"
     },
     {
       "source": "docs/release-assets-history.md",
@@ -1355,6 +1355,16 @@
       "source": "docs/v4.15.0-design.md",
       "english": "docs/en/v4.15.0-design.md",
       "source_sha256": "85cdbd73ce20d407ff6900de7a0b64f3aa82ad3c78eabe084fd063c32c77b0f0"
+    },
+    {
+      "source": "docs/v4.15.0-query-guide.md",
+      "english": "docs/en/v4.15.0-query-guide.md",
+      "source_sha256": "7a4260e204fc8396da6e27d74caff61f54b8e91642f777b60c25de638668199d"
+    },
+    {
+      "source": "docs/v4.15.0-acceptance.md",
+      "english": "docs/en/v4.15.0-acceptance.md",
+      "source_sha256": "993b18ad0e5cebb6444b0675c27d48590452e6ef29bfa859c4ba7f0fec56ae05"
     }
   ]
 }
