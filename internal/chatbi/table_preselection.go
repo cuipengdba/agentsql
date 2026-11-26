@@ -53,12 +53,19 @@ func selectModelTablesIndexedWithKeywords(ctx context.Context, store *Store, p P
 		})
 }
 
-func hasUniqueBusinessTableTitle(question string, columns []Column, remarks []RemarkHint, limit int) bool {
+func needsTableKeywords(question string, columns []Column, remarks []RemarkHint, limit int, followup bool) bool {
 	if limit < 1 || len(question) > 4096 {
 		return false
 	}
 	tables, _, ok := authorizedTableCandidates(columns, remarks, limit)
-	return ok && len(explicitTableMentions(question, tables)) == 0 && uniqueTableTitleMention(question, tables) != ""
+	if !ok {
+		return false
+	}
+	if followup {
+		return true
+	}
+	named := len(explicitTableMentions(question, tables))
+	return named < 2 && (named != 0 || uniqueTableTitleMention(question, tables) == "")
 }
 
 // A first question must not wait for a cold, large local index. On the local

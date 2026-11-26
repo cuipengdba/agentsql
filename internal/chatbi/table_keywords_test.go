@@ -263,3 +263,44 @@ func TestAskKeywordExtractionClosesAfterPermissionRevocation(t *testing.T) {
 		t.Fatalf("revoked context reached generator or query: columns=%v queries=%d err=%v", model.columns, gateway.queries, err)
 	}
 }
+
+func TestAskSkipsKeywordInferenceWhenRankingIsUnnecessary(t *testing.T) {
+	for _, scenario := range []struct {
+		name     string
+		limit    int
+		question string
+	}{
+		{name: "entire schema fits", limit: 3, question: "Calculate revenue"},
+		{name: "two explicit authorized tables", limit: 1, question: "Compare public.sales and public.weather"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			ctx := context.Background()
+			service, principal, gateway, _, token := serviceFixture(t)
+			gateway.columns = []Column{
+				{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+				{Schema: "public", Table: "weather", Name: "temperature", DataType: "numeric"},
+				{Schema: "public", Table: "other", Name: "id", DataType: "integer"},
+			}
+			model := &keywordRevokingModel{extractErr: ErrModel}
+			service.Model = model
+			service.Embedding = tableFixtureEmbedding{}
+			settings := defaultChatSettings()
+			settings.Embedding.TableCount = scenario.limit
+			if err := service.Store.put(ctx, chatSettingsKey(), settings, 0); err != nil {
+				t.Fatal(err)
+			}
+			chat, err := service.Start(ctx, principal, "10", scenario.question, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+			if _, err := service.Ask(ctx, principal, chat.ID, scenario.question, check, nil); err != nil {
+				t.Fatal(err)
+			}
+			want := max(scenario.limit, 2)
+			if len(model.columns) != 1 || len(model.columns[0]) != want || gateway.queries != 1 {
+				t.Fatalf("unexpected model scope or query count: columns=%v queries=%d", model.columns, gateway.queries)
+			}
+		})
+	}
+}

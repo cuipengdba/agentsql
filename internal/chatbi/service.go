@@ -970,11 +970,11 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		if settings.Embedding.TableEnabled && service.Embedding != nil {
 			keywords := question
 			if settings.Embedding.KeywordEnabled {
-				// A first question with a unique, literal business title
-				// already has a table hint. The SQL generator and all
+				// Skip keyword inference if no ranking is needed or a first
+				// question already identifies the tables. All SQL and
 				// authorization checks still run against the live scope.
-				hasTitle := len(history) == 0 && hasUniqueBusinessTableTitle(question, columns, remarks, settings.Embedding.TableCount)
-				if extractor, ok := service.Model.(TableKeywordExtractor); ok && !hasTitle {
+				if extractor, ok := service.Model.(TableKeywordExtractor); ok &&
+					needsTableKeywords(question, columns, remarks, settings.Embedding.TableCount, len(history) != 0) {
 					extracted, extractErr := extractor.ExtractTableKeywords(ctx, model, question, history)
 					if extractErr != nil {
 						return extractErr
