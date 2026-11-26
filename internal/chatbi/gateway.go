@@ -15,7 +15,12 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const gatewayQueryShapeCode = "query_shape_unsupported"
+
+const gatewayQueryShapeMessage = "The current PostgreSQL column authorization mode does not support this query shape."
+
 var ErrGateway = errors.New("controlled gateway rejected or could not complete this operation")
+var errGatewayQueryShape = errors.Join(ErrGateway, errors.New(gatewayQueryShapeMessage))
 var ErrGatewaySourceDenied = errors.Join(ErrGateway, errors.New("datasource mapping is not authorized"))
 var ErrGatewayIdentityUnavailable = errors.Join(ErrGateway, errors.New("identity issuance is unavailable"))
 
@@ -193,10 +198,17 @@ func (gateway *ControlledGateway) call(ctx context.Context, p Principal, b Bindi
 		return nil, r, ErrGateway
 	}
 	var envelope struct {
-		Decision string          `json:"decision"`
-		Data     json.RawMessage `json:"data"`
+		Decision  string          `json:"decision"`
+		ErrorCode string          `json:"error_code"`
+		Data      json.RawMessage `json:"data"`
 	}
-	if json.Unmarshal([]byte(content.Text), &envelope) != nil || (envelope.Decision != "allow" && !(name == "query" && envelope.Decision == "warn")) || len(envelope.Data) == 0 {
+	if json.Unmarshal([]byte(content.Text), &envelope) != nil {
+		return nil, r, ErrGateway
+	}
+	if name == "query" && r.Dialect == "pg" && envelope.Decision == "deny" && envelope.ErrorCode == "AUTH_BINDER_MODE_REQUIRED" {
+		return nil, r, errGatewayQueryShape
+	}
+	if (envelope.Decision != "allow" && !(name == "query" && envelope.Decision == "warn")) || len(envelope.Data) == 0 {
 		return nil, r, ErrGateway
 	}
 	return envelope.Data, r, nil

@@ -57,6 +57,7 @@ type Record struct {
 	FirstChat   bool       `json:"first_chat,omitempty"`
 	Error       string     `json:"error"`
 	ErrorStage  string     `json:"error_stage,omitempty"`
+	ErrorCode   string     `json:"error_code,omitempty"`
 	TotalTokens int        `json:"total_tokens"`
 	Duration    float64    `json:"duration"`
 }
@@ -1137,6 +1138,10 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 	if runErr != nil {
 		record.Data = nil
 		record.Error = "request did not complete; no result was released"
+		if errors.Is(runErr, errGatewayQueryShape) {
+			record.Error = gatewayQueryShapeMessage
+			record.ErrorCode = gatewayQueryShapeCode
+		}
 		record.ErrorStage = stage
 		record.SQL = ""
 		record.SQLAnswer = ""

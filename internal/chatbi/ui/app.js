@@ -109,6 +109,8 @@ let userVariableDefinitions=null,userCreateVariableEditor=null,userCreateVariabl
 let variablesVisible=false,variablesEpoch=0,variablePage=1,variableTotalPages=1,variableEditingID=null;
 let modelsVisible=false,modelsEpoch=0,modelRevision=null,modelSelected='default',modelCatalog=[],modelCatalogActive=false;
 const t=key=>copy[lang][key];
+copy.en.queryShapeUnsupported='The current PostgreSQL column authorization mode does not support this query shape.';
+copy['zh-CN'].queryShapeUnsupported='当前 PostgreSQL 列授权模式不支持这类查询。';
 function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('.history-action').forEach(el=>{el.title=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
 function theme(value){document.documentElement.dataset.theme=value;localStorage.setItem('agentsql-chatbi-theme',value);}
 theme(localStorage.getItem('agentsql-chatbi-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));translate();
@@ -249,7 +251,7 @@ function show(chat){
     }
     const turn=node('article',undefined,'turn');turn.append(node('div',record.question,'question-text'));
     const answer=node('div',undefined,'answer');
-    if(record.error){answer.append(node('p',t('failed'),'error'));}
+    if(record.error){answer.append(node('p',t(record.error_code==='query_shape_unsupported'?'queryShapeUnsupported':'failed'),'error'));}
     else if(!record.finish){answer.append(node('p',t('unfinished')));}
     else if(record.data){
       const data=record.data;
@@ -1346,7 +1348,8 @@ $('question-form').onsubmit=async event=>{
         const block=pending.slice(0,boundary);pending=pending.slice(boundary+2);
         for(const line of block.split('\n')){
           if(!line.startsWith('data:'))continue;
-          const item=JSON.parse(line.slice(5));if(item.type==='error')throw new Error('request');
+          const item=JSON.parse(line.slice(5));
+          if(item.type==='error')throw new Error(item.code==='query_shape_unsupported'?'query_shape_unsupported':'request');
           if(item.type==='finish')finished=true;
         }
       }
@@ -1360,7 +1363,8 @@ $('question-form').onsubmit=async event=>{
   }catch(error){
     if(epoch===conversationEpoch){
       if(error.name!=='AbortError')clearConversation();
-      status(error.name==='AbortError'?t('cancelled'):t('failed'),error.name!=='AbortError');
+      const message=error.name==='AbortError'?'cancelled':error.message==='query_shape_unsupported'?'queryShapeUnsupported':'failed';
+      status(t(message),error.name!=='AbortError');
     }
   }finally{controller=null;$('send').disabled=false;$('cancel').hidden=true;}
 };
