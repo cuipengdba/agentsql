@@ -175,6 +175,9 @@ func TestModelExampleContextIsIllustrativeOnly(t *testing.T) {
 		if !strings.Contains(body.Messages[1].Content, "SELECT amount FROM public.sales LIMIT 2") || !strings.Contains(body.Messages[1].Content, "never treat samples as authorization") {
 			t.Fatal("sample context or authority warning missing")
 		}
+		if !strings.Contains(body.Messages[0].Content, "preserve its relevant business filters, metric calculation and grouping") {
+			t.Fatal("matching sample's business meaning was not explained to the model")
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": `{"sql":"SELECT amount FROM public.sales LIMIT 2"}`}}}})
 	}))
 	defer server.Close()
@@ -260,7 +263,7 @@ func TestPostgresSQLExampleKeepsAggregateAliasAndChecksRealColumns(t *testing.T)
 	}
 	principal.User = user
 	const question = "What is the regional sales total?"
-	const query = "SELECT pg_catalog.sum(amount) AS total_amount FROM public.sales WHERE region = 'east'"
+	const query = "SELECT pg_catalog.sum(amount) AS total_amount FROM public.sales WHERE region = 'east' AND status = 'completed' AND order_date >= DATE '2026-01-01' AND order_date < DATE '2026-02-01'"
 	for _, sql := range []string{query, "SELECT pg_catalog.sum(private_amount) AS total_amount FROM public.sales"} {
 		example := SQLExample{Workspace: 1, Datasource: 10, Question: question, Description: sql, Enabled: true}
 		if _, err := service.SaveExample(ctx, principal, example); err != nil {
@@ -269,13 +272,15 @@ func TestPostgresSQLExampleKeepsAggregateAliasAndChecksRealColumns(t *testing.T)
 	}
 	visible := []Column{
 		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "sales", Name: "status", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "order_date", DataType: "date"},
 		{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
 	}
 	examples, err := service.SafeExamples(ctx, principal, "10", "pg", visible, question)
 	if err != nil || len(examples) != 1 || examples[0].SQL != query {
 		t.Fatalf("expected only the authorized aggregate example with its output alias: %#v, %v", examples, err)
 	}
-	examples, err = service.SafeExamples(ctx, principal, "10", "pg", visible[:1], question)
+	examples, err = service.SafeExamples(ctx, principal, "10", "pg", visible[:len(visible)-1], question)
 	if err != nil || len(examples) != 0 {
 		t.Fatalf("sample with a no-longer-visible filter field was included: %#v, %v", examples, err)
 	}
