@@ -61,10 +61,7 @@ func uniqueTableTitleMention(question string, tables []modelTableCandidate) stri
 			title = title[:end]
 		}
 		title = strings.TrimSpace(title)
-		if length := utf8.RuneCountInString(title); length < 4 || length > 80 {
-			continue
-		}
-		if len(strings.Fields(title)) < 2 && !strings.ContainsFunc(title, func(r rune) bool { return unicode.Is(unicode.Han, r) }) {
+		if !businessRemarkLabel(title) {
 			continue
 		}
 		if _, duplicate := owners[title]; duplicate {
@@ -81,6 +78,38 @@ func uniqueTableTitleMention(question string, tables []modelTableCandidate) stri
 		}
 	}
 	return ""
+}
+
+func businessRemarkLabel(label string) bool {
+	length := utf8.RuneCountInString(label)
+	return length >= 4 && length <= 80 &&
+		(len(strings.Fields(label)) >= 2 || strings.ContainsFunc(label, func(r rune) bool { return unicode.Is(unicode.Han, r) }))
+}
+
+// Match field remarks from the question against the already-authorized fields.
+// A remark shared by several tables cannot distinguish them.
+func distinctiveFieldRemarks(question string, tables []modelTableCandidate, fieldComments map[string]map[string]string) map[string]int {
+	owners := make(map[string]string)
+	for _, table := range tables {
+		for _, field := range table.fields {
+			label := strings.ToLower(strings.TrimSpace(fieldComments[table.key][field.Name]))
+			if !businessRemarkLabel(label) || !mentionedIdentifier(question, label) {
+				continue
+			}
+			if previous, exists := owners[label]; exists && previous != table.key {
+				owners[label] = ""
+			} else {
+				owners[label] = table.key
+			}
+		}
+	}
+	matches := make(map[string]int)
+	for _, owner := range owners {
+		if owner != "" {
+			matches[owner]++
+		}
+	}
+	return matches
 }
 
 func longestMentions(candidates map[string][]mentionSpan) map[string]bool {
