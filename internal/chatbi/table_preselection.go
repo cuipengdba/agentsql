@@ -53,7 +53,8 @@ func selectModelTablesIndexedWithKeywords(ctx context.Context, store *Store, p P
 }
 
 // A first question must not wait for a cold, large local index. On the local
-// budget expiry, keep the entire schema that the gateway just authorized.
+// budget expiry, use the currently authorized schema with an optional
+// literal table or business-name match from the question.
 // The caller still validates its permission and model snapshot before the
 // prompt, query and response. The background prewarm may continue separately.
 func selectModelTablesForAsk(ctx context.Context, store *Store, p Principal, datasource ID, model EmbeddingModel,
@@ -80,9 +81,9 @@ func selectModelTablesForAsk(ctx context.Context, store *Store, p Principal, dat
 }
 
 // A cold vector index can exceed the foreground budget. If the user's own
-// question explicitly names an authorized table, keep that table and the
-// keyword-ranked companions within the configured limit. Ambiguous questions
-// and disabled keyword selection retain the complete authorized schema.
+// question names an authorized table or an unambiguous business title,
+// keep that table and keyword-ranked companions within the configured limit.
+// Ambiguous questions and disabled keyword selection retain the full schema.
 func selectExplicitTableFallback(question, keywords string, columns []Column,
 	remarks []RemarkHint, limit int, keywordEnabled bool) ([]Column, []RemarkHint, error) {
 	if !keywordEnabled || limit < 1 || len(question) > 4096 {
@@ -93,6 +94,11 @@ func selectExplicitTableFallback(question, keywords string, columns []Column,
 		return columns, remarks, nil
 	}
 	explicit := explicitTableMentions(question, tables)
+	if len(explicit) == 0 {
+		if title := uniqueTableTitleMention(question, tables); title != "" {
+			explicit[title] = true
+		}
+	}
 	if len(explicit) == 0 {
 		return columns, remarks, nil
 	}
@@ -191,6 +197,11 @@ func selectModelTablesWithKeywords(ctx context.Context, model EmbeddingModel, qu
 		}
 	}
 	explicit := explicitTableMentions(question, tables)
+	if keywordEnabled && len(explicit) == 0 {
+		if title := uniqueTableTitleMention(question, tables); title != "" {
+			explicit[title] = true
+		}
+	}
 	for index := range tables {
 		table := &tables[index]
 		table.explicit = explicit[table.key]
@@ -288,11 +299,11 @@ func authorizedTableCandidates(columns []Column, remarks []RemarkHint, minTables
 
 func rankModelTables(tables []modelTableCandidate, alpha float64, keywordEnabled bool) {
 	sort.SliceStable(tables, func(i, j int) bool {
-		if keywordEnabled && (tables[i].keyword == 1) != (tables[j].keyword == 1) {
-			return tables[i].keyword == 1
-		}
 		if tables[i].explicit != tables[j].explicit {
 			return tables[i].explicit
+		}
+		if keywordEnabled && (tables[i].keyword == 1) != (tables[j].keyword == 1) {
+			return tables[i].keyword == 1
 		}
 		left, right := tables[i].vector, tables[j].vector
 		if keywordEnabled {

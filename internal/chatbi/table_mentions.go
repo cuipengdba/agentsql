@@ -3,6 +3,8 @@ package chatbi
 import (
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type mentionSpan struct {
@@ -45,6 +47,40 @@ func explicitTableMentions(question string, tables []modelTableCandidate) map[st
 		}
 	}
 	return result
+}
+
+// A remark may start with a business name followed by a longer description.
+// Accept that name only when it identifies one table in the authorized schema.
+func uniqueTableTitleMention(question string, tables []modelTableCandidate) string {
+	question = strings.ToLower(question)
+	titles := make(map[string][]mentionSpan)
+	owners := make(map[string]string)
+	for _, table := range tables {
+		title := strings.ToLower(table.comment)
+		if end := strings.IndexAny(title, ",，。；;\n\r"); end >= 0 {
+			title = title[:end]
+		}
+		title = strings.TrimSpace(title)
+		if length := utf8.RuneCountInString(title); length < 4 || length > 80 {
+			continue
+		}
+		if len(strings.Fields(title)) < 2 && !strings.ContainsFunc(title, func(r rune) bool { return unicode.Is(unicode.Han, r) }) {
+			continue
+		}
+		if _, duplicate := owners[title]; duplicate {
+			owners[title] = ""
+			continue
+		}
+		owners[title] = table.key
+		titles[title] = identifierSpans(question, title, nil)
+	}
+	selected := longestMentions(titles)
+	if len(selected) == 1 {
+		for title := range selected {
+			return owners[title]
+		}
+	}
+	return ""
 }
 
 func longestMentions(candidates map[string][]mentionSpan) map[string]bool {
