@@ -175,6 +175,9 @@ func TestModelExampleContextIsIllustrativeOnly(t *testing.T) {
 		if !strings.Contains(body.Messages[1].Content, "SELECT amount FROM public.sales LIMIT 2") || !strings.Contains(body.Messages[1].Content, "never treat samples as authorization") {
 			t.Fatal("sample context or authority warning missing")
 		}
+		if !strings.Contains(body.Messages[0].Content, "preserve its relevant business filters, metric calculation and grouping") {
+			t.Fatal("matching sample's business meaning was not explained to the model")
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": `{"sql":"SELECT amount FROM public.sales LIMIT 2"}`}}}})
 	}))
 	defer server.Close()
@@ -182,5 +185,103 @@ func TestModelExampleContextIsIllustrativeOnly(t *testing.T) {
 	_, err := model.GenerateWithGrounding(context.Background(), ModelConfig{Model: "fixture", Endpoint: server.URL + "/v1"}, "pg", "GMV", []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}, nil, nil, []ExampleHint{{Question: "GMV", SQL: "SELECT amount FROM public.sales LIMIT 2"}})
 	if err != nil || called != 1 {
 		t.Fatalf("sample context model call failed: %v", err)
+	}
+}
+
+type rewritingSemanticCapture struct {
+	semanticCapture
+	extractions int
+}
+
+func (capture *rewritingSemanticCapture) ExtractTableKeywords(context.Context, ModelConfig, string, []TurnContext) (string, error) {
+	capture.extractions++
+	return "sales, amount", nil
+}
+
+func TestAskPreservesLiteralBusinessTermsWhenKeywordsDiffer(t *testing.T) {
+	ctx := context.Background()
+	service, principal, gateway, _, token := serviceFixture(t)
+	gateway.columns = []Column{
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "weather", Name: "temperature", DataType: "numeric"},
+	}
+	term := Terminology{
+		ID: 17, Word: "星桥单", Description: "Only orders recorded as completed.",
+		Enabled: true, SpecificDS: true, DatasourceIDs: []int64{10},
+	}
+	if err := service.Store.put(ctx, semanticKey("terminology", "1", term.ID), term, 0); err != nil {
+		t.Fatal(err)
+	}
+	settings := defaultChatSettings()
+	settings.Embedding.Enabled = false // Isolate literal retrieval from vector similarity.
+	settings.Embedding.TableCount = 1
+	if err := service.Store.put(ctx, chatSettingsKey(), settings, 0); err != nil {
+		t.Fatal(err)
+	}
+	capture := &rewritingSemanticCapture{}
+	service.Model = capture
+	service.Embedding = tableFixtureEmbedding{}
+	question := "用 sales 计算星桥单的金额"
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+
+	ask := func() {
+		t.Helper()
+		chat, err := service.Start(ctx, principal, "10", question, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.Ask(ctx, principal, chat.ID, question, check, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ask()
+	if capture.extractions != 1 || len(capture.hints) != 1 || len(capture.hints[0]) != 1 ||
+		capture.hints[0][0].Word != term.Word {
+		t.Fatalf("keyword extraction dropped a current literal term: %#v", capture.hints)
+	}
+
+	term.Enabled = false
+	if err := service.Store.put(ctx, semanticKey("terminology", "1", term.ID), term, 1); err != nil {
+		t.Fatal(err)
+	}
+	ask()
+	if capture.extractions != 2 || len(capture.hints) != 2 || len(capture.hints[1]) != 0 {
+		t.Fatalf("a disabled term reached the model: %#v", capture.hints)
+	}
+}
+
+func TestPostgresSQLExampleKeepsAggregateAliasAndChecksRealColumns(t *testing.T) {
+	ctx := context.Background()
+	service, principal, _, _, _ := serviceFixture(t)
+	user, revision, err := service.Store.User(ctx, principal.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user.Admin = true
+	if err := service.Store.put(ctx, userKey(user.ID), user, revision); err != nil {
+		t.Fatal(err)
+	}
+	principal.User = user
+	const question = "What is the regional sales total?"
+	const query = "SELECT pg_catalog.sum(amount) AS total_amount FROM public.sales WHERE region = 'east' AND status = 'completed' AND order_date >= DATE '2026-01-01' AND order_date < DATE '2026-02-01'"
+	for _, sql := range []string{query, "SELECT pg_catalog.sum(private_amount) AS total_amount FROM public.sales"} {
+		example := SQLExample{Workspace: 1, Datasource: 10, Question: question, Description: sql, Enabled: true}
+		if _, err := service.SaveExample(ctx, principal, example); err != nil {
+			t.Fatal(err)
+		}
+	}
+	visible := []Column{
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "sales", Name: "status", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "order_date", DataType: "date"},
+		{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+	}
+	examples, err := service.SafeExamples(ctx, principal, "10", "pg", visible, question)
+	if err != nil || len(examples) != 1 || examples[0].SQL != query {
+		t.Fatalf("expected only the authorized aggregate example with its output alias: %#v, %v", examples, err)
+	}
+	examples, err = service.SafeExamples(ctx, principal, "10", "pg", visible[:len(visible)-1], question)
+	if err != nil || len(examples) != 0 {
+		t.Fatalf("sample with a no-longer-visible filter field was included: %#v, %v", examples, err)
 	}
 }

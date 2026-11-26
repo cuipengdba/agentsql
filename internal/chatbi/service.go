@@ -966,15 +966,15 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		}
 		authorizedColumns := columns
 		authorizedRemarks := remarks
-		semanticQuery := question
+		vocabularyQuery := question
 		if settings.Embedding.TableEnabled && service.Embedding != nil {
 			keywords := question
 			if settings.Embedding.KeywordEnabled {
-				// A first question with a unique, literal business title
-				// already has a table hint. The SQL generator and all
+				// Skip keyword inference if no ranking is needed or a first
+				// question already identifies the tables. All SQL and
 				// authorization checks still run against the live scope.
-				hasTitle := len(history) == 0 && hasUniqueBusinessTableTitle(question, columns, remarks, settings.Embedding.TableCount)
-				if extractor, ok := service.Model.(TableKeywordExtractor); ok && !hasTitle {
+				if extractor, ok := service.Model.(TableKeywordExtractor); ok &&
+					needsTableKeywords(question, columns, remarks, settings.Embedding.TableCount, len(history) != 0) {
 					extracted, extractErr := extractor.ExtractTableKeywords(ctx, model, question, history)
 					if extractErr != nil {
 						return extractErr
@@ -995,7 +995,7 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 						return err
 					}
 					if extracted != "" {
-						semanticQuery = extracted
+						vocabularyQuery += "\n" + extracted
 						keywords, err = service.expandTableKeywords(ctx, p, chat.Datasource, extracted)
 						if err != nil {
 							return err
@@ -1029,11 +1029,11 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		if err := check(ctx); err != nil {
 			return err
 		}
-		hints, err := service.Vocabulary(ctx, p, chat.Datasource, semanticQuery)
+		hints, err := service.Vocabulary(ctx, p, chat.Datasource, vocabularyQuery)
 		if err != nil {
 			return err
 		}
-		hints, err = relationHintsForModel(binding, columns, hints)
+		hints, err = relationHintsForModel(binding, authorizedColumns, columns, hints)
 		if err != nil {
 			return err
 		}
@@ -1046,7 +1046,10 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		}
 		stage = "model"
 		// Knowledge retrieval can run local inference after schema discovery.
-		// A changed rule must close before the old schema reaches the generator.
+		// Recheck the binding and rules before sending the captured schema.
+		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+			return err
+		}
 		if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
 			return err
 		}

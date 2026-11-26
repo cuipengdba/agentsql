@@ -124,7 +124,14 @@ func exampleVisibleSQL(approved parser.Parser, sqlText string, visible []Column)
 		return false
 	}
 	ast, err := approved.Parse(sqlText)
-	if err != nil || ast == nil || ast.IsMulti || ast.StmtType != "SELECT" || len(ast.Tables) != 1 || len(ast.Columns) == 0 {
+	if err != nil || ast == nil || ast.IsMulti || ast.StmtType != "SELECT" || len(ast.Tables) != 1 {
+		return false
+	}
+	references := ast.Columns
+	if ast.Dialect == model.DialectPostgres && ast.ReferencedColumns != nil {
+		references = ast.ReferencedColumns
+	}
+	if len(references) == 0 {
 		return false
 	}
 	table := ast.Tables[0]
@@ -137,7 +144,7 @@ func exampleVisibleSQL(approved parser.Parser, sqlText string, visible []Column)
 	if len(allowed) == 0 {
 		return false
 	}
-	for _, column := range ast.Columns {
+	for _, column := range references {
 		if column == "*" || !allowed[strings.ToLower(column)] {
 			return false
 		}

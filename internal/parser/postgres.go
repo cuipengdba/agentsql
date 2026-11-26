@@ -94,6 +94,7 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 
 	tables := make(objectSet)
 	columns := make(stringSet)
+	columnReferences := make(stringSet)
 	functions := make(stringSet)
 	commonTableExpressions := make(stringSet)
 	nestingDepth, unionCount := 0, 0
@@ -109,6 +110,7 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 		case "ColumnRef":
 			if column, ok := postgresColumnRef(value); ok {
 				columns.add(column)
+				columnReferences.add(column)
 			}
 		case "ColumnDef":
 			if column, ok := postgresStringField(value, "colname"); ok {
@@ -167,6 +169,11 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 		operations.add(sqlCommentOperation)
 	}
 	rootObject, rootIsObject := node.(map[string]any)
+	var referencedColumns []string
+	if nodeType == "SelectStmt" && rootIsObject && len(commonTableExpressions) == 0 &&
+		rootObject["intoClause"] == nil && rootObject["lockingClause"] == nil {
+		referencedColumns = columnReferences.sorted()
+	}
 	hasWhere := false
 	hasLimit := false
 	whereTautology := false
@@ -193,6 +200,7 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 		IsMulti:            false,
 		Tables:             tables.sorted(),
 		Columns:            columns.sorted(),
+		ReferencedColumns:  referencedColumns,
 		DirectProjections:  directProjections,
 		ProjectionLineages: projectionLineages,
 		HasWhere:           hasWhere,
