@@ -190,6 +190,45 @@ func TestAskKeywordModelFailurePreventsGenerationAndQuery(t *testing.T) {
 	}
 }
 
+func TestFirstAskWithUniqueBusinessTitleUsesSQLGeneratorWithoutKeywordRequest(t *testing.T) {
+	ctx := context.Background()
+	service, principal, gateway, _, token := serviceFixture(t)
+	gateway.columns = []Column{
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "weather", Name: "temperature", DataType: "numeric"},
+	}
+	var binding Binding
+	key := bindingKey(principal, "10")
+	revision, _, err := service.Store.getWithDigest(ctx, key, &binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding.TableComments = `{"public\u0000sales":"实际销售订单明细，按下单日期记录"}`
+	if err := service.Store.put(ctx, key, binding, revision); err != nil {
+		t.Fatal(err)
+	}
+	model := &keywordRevokingModel{extractErr: ErrModel}
+	service.Model = model
+	service.Embedding = tableFixtureEmbedding{}
+	settings := defaultChatSettings()
+	settings.Embedding.TableCount = 1
+	if err := service.Store.put(ctx, chatSettingsKey(), settings, 0); err != nil {
+		t.Fatal(err)
+	}
+	question := "实际销售订单明细的金额是多少？"
+	chat, err := service.Start(ctx, principal, "10", question, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+	if _, err := service.Ask(ctx, principal, chat.ID, question, check, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(model.columns) != 1 || len(model.columns[0]) != 1 || model.columns[0][0].Table != "sales" || gateway.queries != 1 {
+		t.Fatalf("expected one authorized SQL generation and query: columns=%v queries=%d", model.columns, gateway.queries)
+	}
+}
+
 func TestAskKeywordExtractionClosesAfterPermissionRevocation(t *testing.T) {
 	ctx := context.Background()
 	service, p, gateway, _, token := serviceFixture(t)

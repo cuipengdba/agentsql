@@ -173,6 +173,42 @@ func TestExplicitColdFallbackKeepsFullSchemaWhenQuestionIsAmbiguous(t *testing.T
 	}
 }
 
+func TestColdFallbackUsesUniqueAuthorizedBusinessTitle(t *testing.T) {
+	columns := []Column{
+		{Schema: "public", Table: "forecast", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "orders", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "archive", Name: "amount", DataType: "numeric"},
+	}
+	remarks := []RemarkHint{
+		{Schema: "public", Table: "orders", Remark: "实际销售订单明细，按下单日期记录"},
+		{Schema: "public", Table: "forecast", Remark: "销售订单预测，预算金额"},
+		{Schema: "public", Table: "archive", Remark: "历史销售归档，每年更新"},
+		{Schema: "private", Table: "audit", Remark: "实际销售订单明细，内部范围"},
+	}
+	question := "实际销售订单明细的金额是多少？"
+	selected, selectedRemarks, err := selectExplicitTableFallback(question, "forecast", columns, remarks, 1, true)
+	if err != nil || len(selected) != 1 || selected[0].Table != "orders" ||
+		len(selectedRemarks) != 1 || selectedRemarks[0].Table != "orders" {
+		t.Fatalf("unique authorized title did not retain the correct schema: %v %v %v", selected, selectedRemarks, err)
+	}
+	selected, _, err = selectExplicitTableFallback(question, "forecast", columns, remarks, 2, true)
+	if err != nil || len(selected) != 2 || selected[0].Table != "orders" || selected[1].Table != "forecast" {
+		t.Fatalf("an authorized companion preceded the named business table: %v %v", selected, err)
+	}
+
+	for _, question := range []string{"比较实际销售订单明细和销售订单预测", "销售金额是多少？"} {
+		selected, _, err = selectExplicitTableFallback(question, "forecast", columns, remarks, 1, true)
+		if err != nil || len(selected) != len(columns) {
+			t.Fatalf("multiple or absent business titles narrowed schema: %q %v %v", question, selected, err)
+		}
+	}
+	remarks[2].Remark = "实际销售订单明细，归档数据"
+	selected, _, err = selectExplicitTableFallback(question, "forecast", columns, remarks, 1, true)
+	if err != nil || len(selected) != len(columns) {
+		t.Fatalf("duplicate authorized title narrowed schema: %v %v", selected, err)
+	}
+}
+
 func TestForegroundColdIndexBudgetDoesNotHideRevocation(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)

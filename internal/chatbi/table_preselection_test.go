@@ -201,3 +201,41 @@ func TestTablePreselectionKeepsLongestExplicitNamesAndComments(t *testing.T) {
 		t.Fatalf("longest explicit table comment was truncated: %#v %v", chosen, err)
 	}
 }
+
+func TestTableSelectionUsesDistinctiveAuthorizedFieldRemark(t *testing.T) {
+	ctx := context.Background()
+	columns := []Column{
+		{Schema: "public", Table: "weather", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "orders", Name: "status", DataType: "text"},
+		{Schema: "public", Table: "forecast", Name: "amount", DataType: "numeric"},
+	}
+	remarks := []RemarkHint{
+		{Schema: "public", Table: "orders", Column: "status", Remark: "订单状态"},
+		{Schema: "public", Table: "weather", Column: "secret", Remark: "订单状态"},
+		{Schema: "internal", Table: "orders", Column: "status", Remark: "订单状态"},
+	}
+	question := "统计订单状态为已完成的交易"
+	// The embedding and extracted keyword both originally prefer the unrelated table.
+	narrowed, _, err := selectModelTablesWithKeywords(ctx, tableFixtureEmbedding{}, question, "weather",
+		columns, remarks, 1, 1, true, nil)
+	if err != nil || len(narrowed) != 1 || narrowed[0].Table != "orders" {
+		t.Fatalf("authorized field remark did not rank orders: %v %v", narrowed, err)
+	}
+	narrowed, _, err = selectExplicitTableFallback(question, "weather", columns, remarks, 1, true)
+	if err != nil || len(narrowed) != 1 || narrowed[0].Table != "orders" {
+		t.Fatalf("authorized field remark did not retain orders on timeout: %v %v", narrowed, err)
+	}
+	narrowed, _, err = selectExplicitTableFallback("weather 的订单状态", "weather", columns, remarks, 1, true)
+	if err != nil || len(narrowed) != 1 || narrowed[0].Table != "weather" {
+		t.Fatalf("field remark displaced an explicitly named table: %v %v", narrowed, err)
+	}
+	narrowed, _, err = selectExplicitTableFallback(question, "weather", columns, remarks, 1, false)
+	if err != nil || len(narrowed) != len(columns) {
+		t.Fatalf("disabled keyword selection restricted the schema: %v %v", narrowed, err)
+	}
+	remarks = append(remarks, RemarkHint{Schema: "public", Table: "forecast", Column: "amount", Remark: "订单状态"})
+	narrowed, _, err = selectExplicitTableFallback(question, "weather", columns, remarks, 1, true)
+	if err != nil || len(narrowed) != len(columns) {
+		t.Fatalf("shared business field remark narrowed an ambiguous question: %v %v", narrowed, err)
+	}
+}

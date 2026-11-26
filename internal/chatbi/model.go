@@ -212,6 +212,7 @@ func (model OpenAIModel) GenerateWithDescriptions(ctx context.Context, config Mo
 	if language := questionLanguage(ctx); language != "" {
 		system += " Interpret the current question in " + language + "; preserve the supplied schema identifiers exactly and return only SQL JSON."
 	}
+	system += " Use only columns listed for each referenced table. Preserve text filter values supplied in the question, including their original language, unless the supplied business vocabulary explicitly maps them to a stored value."
 	if dialect == "pg" {
 		system += " MANDATORY PostgreSQL syntax: every aggregate call must have the pg_catalog prefix, including pg_catalog.sum, pg_catalog.count, pg_catalog.avg, pg_catalog.min and pg_catalog.max. Bare SUM, COUNT or other unqualified function calls are not accepted. For example: SELECT region, pg_catalog.sum(amount) AS total_amount FROM public.sales GROUP BY region ORDER BY total_amount DESC LIMIT 3. Check this requirement before returning the JSON."
 	}

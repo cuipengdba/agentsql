@@ -3,6 +3,8 @@ package chatbi
 import (
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type mentionSpan struct {
@@ -45,6 +47,69 @@ func explicitTableMentions(question string, tables []modelTableCandidate) map[st
 		}
 	}
 	return result
+}
+
+// A remark may start with a business name followed by a longer description.
+// Accept that name only when it identifies one table in the authorized schema.
+func uniqueTableTitleMention(question string, tables []modelTableCandidate) string {
+	question = strings.ToLower(question)
+	titles := make(map[string][]mentionSpan)
+	owners := make(map[string]string)
+	for _, table := range tables {
+		title := strings.ToLower(table.comment)
+		if end := strings.IndexAny(title, ",，。；;\n\r"); end >= 0 {
+			title = title[:end]
+		}
+		title = strings.TrimSpace(title)
+		if !businessRemarkLabel(title) {
+			continue
+		}
+		if _, duplicate := owners[title]; duplicate {
+			owners[title] = ""
+			continue
+		}
+		owners[title] = table.key
+		titles[title] = identifierSpans(question, title, nil)
+	}
+	selected := longestMentions(titles)
+	if len(selected) == 1 {
+		for title := range selected {
+			return owners[title]
+		}
+	}
+	return ""
+}
+
+func businessRemarkLabel(label string) bool {
+	length := utf8.RuneCountInString(label)
+	return length >= 4 && length <= 80 &&
+		(len(strings.Fields(label)) >= 2 || strings.ContainsFunc(label, func(r rune) bool { return unicode.Is(unicode.Han, r) }))
+}
+
+// Match field remarks from the question against the already-authorized fields.
+// A remark shared by several tables cannot distinguish them.
+func distinctiveFieldRemarks(question string, tables []modelTableCandidate, fieldComments map[string]map[string]string) map[string]int {
+	owners := make(map[string]string)
+	for _, table := range tables {
+		for _, field := range table.fields {
+			label := strings.ToLower(strings.TrimSpace(fieldComments[table.key][field.Name]))
+			if !businessRemarkLabel(label) || !mentionedIdentifier(question, label) {
+				continue
+			}
+			if previous, exists := owners[label]; exists && previous != table.key {
+				owners[label] = ""
+			} else {
+				owners[label] = table.key
+			}
+		}
+	}
+	matches := make(map[string]int)
+	for _, owner := range owners {
+		if owner != "" {
+			matches[owner]++
+		}
+	}
+	return matches
 }
 
 func longestMentions(candidates map[string][]mentionSpan) map[string]bool {

@@ -12,15 +12,16 @@ import (
 const foregroundTableIndexBudget = 10 * time.Second
 
 type modelTableCandidate struct {
-	key      string
-	name     string
-	comment  string
-	text     string
-	fields   []Column
-	index    int
-	vector   float64
-	keyword  float64
-	explicit bool
+	key        string
+	name       string
+	comment    string
+	text       string
+	fields     []Column
+	index      int
+	vector     float64
+	keyword    float64
+	fieldHints int
+	explicit   bool
 }
 
 // selectModelTables only narrows schema already authorized by the live gateway.
@@ -52,8 +53,17 @@ func selectModelTablesIndexedWithKeywords(ctx context.Context, store *Store, p P
 		})
 }
 
+func hasUniqueBusinessTableTitle(question string, columns []Column, remarks []RemarkHint, limit int) bool {
+	if limit < 1 || len(question) > 4096 {
+		return false
+	}
+	tables, _, ok := authorizedTableCandidates(columns, remarks, limit)
+	return ok && len(explicitTableMentions(question, tables)) == 0 && uniqueTableTitleMention(question, tables) != ""
+}
+
 // A first question must not wait for a cold, large local index. On the local
-// budget expiry, keep the entire schema that the gateway just authorized.
+// budget expiry, use the currently authorized schema with an optional
+// literal table or business-name match from the question.
 // The caller still validates its permission and model snapshot before the
 // prompt, query and response. The background prewarm may continue separately.
 func selectModelTablesForAsk(ctx context.Context, store *Store, p Principal, datasource ID, model EmbeddingModel,
@@ -80,9 +90,9 @@ func selectModelTablesForAsk(ctx context.Context, store *Store, p Principal, dat
 }
 
 // A cold vector index can exceed the foreground budget. If the user's own
-// question explicitly names an authorized table, keep that table and the
-// keyword-ranked companions within the configured limit. Ambiguous questions
-// and disabled keyword selection retain the complete authorized schema.
+// question identifies an authorized table by name, business title, or a
+// distinctive authorized field remark, keep that table in the candidate list.
+// Ambiguous questions and disabled keyword selection retain the full schema.
 func selectExplicitTableFallback(question, keywords string, columns []Column,
 	remarks []RemarkHint, limit int, keywordEnabled bool) ([]Column, []RemarkHint, error) {
 	if !keywordEnabled || limit < 1 || len(question) > 4096 {
@@ -94,32 +104,23 @@ func selectExplicitTableFallback(question, keywords string, columns []Column,
 	}
 	explicit := explicitTableMentions(question, tables)
 	if len(explicit) == 0 {
+		if title := uniqueTableTitleMention(question, tables); title != "" {
+			explicit[title] = true
+		}
+	}
+	fieldHints := distinctiveFieldRemarks(question, tables, fieldComments)
+	if len(explicit) == 0 && len(fieldHints) != 1 {
 		return columns, remarks, nil
 	}
 	for index := range tables {
-		tables[index].explicit = explicit[tables[index].key]
-		tables[index].keyword = scoreTableKeywords(keywords, tables[index], fieldComments[tables[index].key])
+		table := &tables[index]
+		table.explicit = explicit[table.key]
+		table.fieldHints = fieldHints[table.key]
+		table.keyword = scoreTableKeywords(keywords, *table, fieldComments[table.key])
 	}
 	rankModelTables(tables, 0, true)
-	selected := make(map[string]bool)
-	for _, table := range tables {
-		if len(selected) < limit || table.explicit {
-			selected[table.key] = true
-		}
-	}
-	filteredColumns := make([]Column, 0, len(columns))
-	for _, column := range columns {
-		if selected[column.Schema+"\x00"+column.Table] {
-			filteredColumns = append(filteredColumns, column)
-		}
-	}
-	filteredRemarks := make([]RemarkHint, 0, len(remarks))
-	for _, remark := range remarks {
-		if selected[remark.Schema+"\x00"+remark.Table] {
-			filteredRemarks = append(filteredRemarks, remark)
-		}
-	}
-	return filteredColumns, filteredRemarks, nil
+	columns, remarks = projectRankedTableSchema(tables, columns, remarks, limit, len(explicit) > 1)
+	return columns, remarks, nil
 }
 
 func selectModelTablesWithVectors(ctx context.Context, model EmbeddingModel, question string, columns []Column,
@@ -191,24 +192,46 @@ func selectModelTablesWithKeywords(ctx context.Context, model EmbeddingModel, qu
 		}
 	}
 	explicit := explicitTableMentions(question, tables)
+	var fieldHints map[string]int
+	if keywordEnabled {
+		fieldHints = distinctiveFieldRemarks(question, tables, fieldComments)
+		if len(explicit) == 0 {
+			if title := uniqueTableTitleMention(question, tables); title != "" {
+				explicit[title] = true
+			}
+		}
+	}
 	for index := range tables {
 		table := &tables[index]
 		table.explicit = explicit[table.key]
 		if keywordEnabled {
+			table.fieldHints = fieldHints[table.key]
 			table.keyword = scoreTableKeywords(vectorQuery, *table, fieldComments[table.key])
 		}
 	}
 	rankModelTables(tables, alpha, keywordEnabled)
+	columns, remarks = projectRankedTableSchema(tables, columns, remarks, limit, len(explicit) > 1)
+	return columns, remarks, nil
+}
+
+// Present the most relevant table first. When the question explicitly names
+// multiple tables, keep their existing authorized schema order.
+func projectRankedTableSchema(tables []modelTableCandidate, columns []Column, remarks []RemarkHint,
+	limit int, preserveSchemaOrder bool) ([]Column, []RemarkHint) {
 	selected := make(map[string]bool)
+	var filteredColumns []Column
 	for _, table := range tables {
 		if len(selected) < limit || table.explicit {
 			selected[table.key] = true
+			filteredColumns = append(filteredColumns, table.fields...)
 		}
 	}
-	filteredColumns := make([]Column, 0, len(columns))
-	for _, column := range columns {
-		if selected[column.Schema+"\x00"+column.Table] {
-			filteredColumns = append(filteredColumns, column)
+	if preserveSchemaOrder {
+		filteredColumns = filteredColumns[:0]
+		for _, column := range columns {
+			if selected[column.Schema+"\x00"+column.Table] {
+				filteredColumns = append(filteredColumns, column)
+			}
 		}
 	}
 	filteredRemarks := make([]RemarkHint, 0, len(remarks))
@@ -217,7 +240,7 @@ func selectModelTablesWithKeywords(ctx context.Context, model EmbeddingModel, qu
 			filteredRemarks = append(filteredRemarks, remark)
 		}
 	}
-	return filteredColumns, filteredRemarks, nil
+	return filteredColumns, filteredRemarks
 }
 
 // authorizedTableCandidates is shared by live preselection and background
@@ -288,11 +311,14 @@ func authorizedTableCandidates(columns []Column, remarks []RemarkHint, minTables
 
 func rankModelTables(tables []modelTableCandidate, alpha float64, keywordEnabled bool) {
 	sort.SliceStable(tables, func(i, j int) bool {
-		if keywordEnabled && (tables[i].keyword == 1) != (tables[j].keyword == 1) {
-			return tables[i].keyword == 1
-		}
 		if tables[i].explicit != tables[j].explicit {
 			return tables[i].explicit
+		}
+		if keywordEnabled && tables[i].fieldHints != tables[j].fieldHints {
+			return tables[i].fieldHints > tables[j].fieldHints
+		}
+		if keywordEnabled && (tables[i].keyword == 1) != (tables[j].keyword == 1) {
+			return tables[i].keyword == 1
 		}
 		left, right := tables[i].vector, tables[j].vector
 		if keywordEnabled {
