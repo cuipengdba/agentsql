@@ -1395,6 +1395,11 @@
       "source": "docs/v4.17.0-design.md",
       "english": "docs/en/v4.17.0-design.md",
       "source_sha256": "ce8bc9802913424ad25e9f8a91a2748a9e2180fe2d9c78d69c483d2d52bae335"
+    },
+    {
+      "source": "docs/v4.18.0-design.md",
+      "english": "docs/en/v4.18.0-design.md",
+      "source_sha256": "e418ccff880b4bf63c2d26a74889e8b195f6fd63b141a3d32896ac879ccedc4b"
     }
   ]
 }
