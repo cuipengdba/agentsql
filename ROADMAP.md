@@ -14,6 +14,7 @@ AgentSQL 是独立 AI 问数 Agent 与独立 MCP Server 数据库安全网关的
 
 | 版本 | 状态 | 已确认或目标范围 |
 | --- | --- | --- |
+| v4.17.0 | 已发布（[Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.17.0)） | 问数联合PostgreSQL 与托管文件接入。[使用指南](docs/v4.17.0-query-guide.md) · [验收与边界](docs/v4.17.0-acceptance.md)。 |
 | v4.16.0 | 已发布（[Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.16.0)） | 问数联合行列权限、脱敏和并发隔离。[使用指南](docs/v4.16.0-query-guide.md) · [验收与边界](docs/v4.16.0-acceptance.md)。 |
 | v4.15.0 | 已发布（[Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.15.0)） | 双表关联和业务语义。[使用指南](docs/v4.15.0-query-guide.md) · [验收与边界](docs/v4.15.0-acceptance.md)。 |
 | v4.14.0 | 已发布（[Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.14.0)） | 原生单表过滤、分组、排序和限量。128 张授权表选表及冷/热验证。[使用指南](docs/v4.14.0-query-guide.md) · [验收与边界](docs/v4.14.0-acceptance.md)。 |

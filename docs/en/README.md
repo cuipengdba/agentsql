@@ -1,6 +1,6 @@
 # AgentSQL documentation
 
-The current release is **v4.16.0**. Use the [official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.16.0) and [three usage modes](PRODUCT_MODES.md) as current product-scope entry points. Some detailed guides retain versioned sections and cannot expand the verified v4.16.0 scope. Historical reports keep their original time and conclusions.
+The current release is **v4.17.0**. Use the [official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.17.0) and [three usage modes](PRODUCT_MODES.md) as current product-scope entry points. Some detailed guides retain versioned sections and cannot expand the verified v4.17.0 scope. Historical reports keep their original time and conclusions.
 
 **Language:** [English](README.md) | [Simplified Chinese](../README.md)
 
@@ -21,7 +21,7 @@ The current release is **v4.16.0**. Use the [official release notes](https://git
 | Task-level temporary authorization | [Temporary read-only authorization](task-read-grants.md) |
 | Architecture and Security Contracts | [Engineering Specifications](SPEC.md), [Safety Policy](../../SECURITY.en.md) |
 | Issuance and signature verification | [ delivery process ](RELEASE_ROUTINE.md), [ issuance process ](RELEASE_PROCESS.md), [ asset list ](RELEASE_ASSETS.md) |
-| Current release scope | [v4.16.0 official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.16.0), [Design and limits](v4.16.0-design.md), [Acceptance and fixed score](v4.16.0-acceptance.md) |
+| Current release scope | [v4.17.0 official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.17.0), [Design and limits](v4.17.0-design.md), [Acceptance and fixed score](v4.17.0-acceptance.md) |
 
 The English version is compared section by section with the same Chinese source document, retaining executable examples and historical evidence, without replacing the full text with an abstract. The operation and maintenance entrance of the current version is `OPERATIONS.md`.
 
