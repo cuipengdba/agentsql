@@ -560,7 +560,7 @@ func TestConfiguredAdmissionLimitAndStaticAssetBoundary(t *testing.T) {
 }
 
 func TestQuestionFailureBoundariesAndTerminalPersistence(t *testing.T) {
-	for _, stage := range []string{"schema", "model", "gateway", "missing-audit", "revoked-after-model", "revoked-after-query", "storage"} {
+	for _, stage := range []string{"schema", "model", "gateway", "unsupported-binder-mode", "missing-audit", "revoked-after-model", "revoked-after-query", "storage"} {
 		t.Run(stage, func(t *testing.T) {
 			ctx := context.Background()
 			s, p, g, m, token := serviceFixture(t)
@@ -575,6 +575,8 @@ func TestQuestionFailureBoundariesAndTerminalPersistence(t *testing.T) {
 				m.err = ErrModel
 			case "gateway":
 				g.queryErr = ErrGateway
+			case "unsupported-binder-mode":
+				g.queryErr = errGatewayQueryShape
 			case "missing-audit":
 				g.audit = 0
 			case "revoked-after-model":
@@ -610,6 +612,11 @@ func TestQuestionFailureBoundariesAndTerminalPersistence(t *testing.T) {
 				}
 				if len(stored.Records) != 1 || !stored.Records[0].Finish || stored.Records[0].Error == "" || stored.Records[0].Data != nil || !stored.LeaseUntil.IsZero() {
 					t.Fatal("failure state was not durable")
+				}
+				if stage == "unsupported-binder-mode" && (stored.Records[0].Error != gatewayQueryShapeMessage ||
+					stored.Records[0].ErrorCode != gatewayQueryShapeCode ||
+					stored.Records[0].ErrorStage != "controlled_query" || stored.Records[0].SQL != "") {
+					t.Fatal("unsupported query did not retain safe guidance without SQL or data")
 				}
 			}
 		})

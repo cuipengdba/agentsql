@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,7 +40,7 @@ func TestGatewayResolveDistinguishesRevokedMappingFromAuditFailure(t *testing.T)
 }
 
 func TestControlledGatewayUsesAuthenticatedIdentityAndDurableAudit(t *testing.T) {
-	for _, mode := range []string{"allow", "warn", "missing-audit", "deny"} {
+	for _, mode := range []string{"allow", "warn", "missing-audit", "deny", "unsupported-binder-mode"} {
 		t.Run(mode, func(t *testing.T) {
 			calls := 0
 			resolved := 0
@@ -55,13 +56,18 @@ func TestControlledGatewayUsesAuthenticatedIdentityAndDurableAudit(t *testing.T)
 					audit = 0
 				}
 				decision := "allow"
-				if mode == "deny" {
+				if mode == "deny" || mode == "unsupported-binder-mode" {
 					decision = "deny"
 				}
 				if mode == "warn" {
 					decision = "warn"
 				}
-				data, _ := json.Marshal(map[string]any{"decision": decision, "data": map[string]any{"audit_id": audit, "result": map[string]any{"Columns": []string{"amount"}, "Rows": [][]string{{"123"}}}}})
+				envelope := map[string]any{"decision": decision, "data": map[string]any{"audit_id": audit, "result": map[string]any{"Columns": []string{"amount"}, "Rows": [][]string{{"123"}}}}}
+				if mode == "unsupported-binder-mode" {
+					envelope["error_code"] = "AUTH_BINDER_MODE_REQUIRED"
+					envelope["reason"] = "private fixture gateway detail"
+				}
+				data, _ := json.Marshal(envelope)
 				return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(data)}}}, nil
 			})
 			stream := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{JSONResponse: true})
@@ -95,6 +101,11 @@ func TestControlledGatewayUsesAuthenticatedIdentityAndDurableAudit(t *testing.T)
 				}
 			} else if err == nil || result.Data != nil {
 				t.Fatal("denied or unaudited results released")
+			}
+			if mode == "unsupported-binder-mode" && (!errors.Is(err, ErrGateway) ||
+				!strings.Contains(err.Error(), "current PostgreSQL column authorization mode") ||
+				strings.Contains(err.Error(), "private fixture gateway detail")) {
+				t.Fatalf("unsupported query must provide safe mode guidance: %v", err)
 			}
 			if calls != 1 || resolved != 1 {
 				t.Fatalf("unexpected retry or skipped identity resolution: calls=%d resolve=%d", calls, resolved)

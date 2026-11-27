@@ -433,6 +433,8 @@ func failure(w http.ResponseWriter, err error) {
 		status, message = 409, "Workspace still contains resources or members"
 	case errors.Is(err, ErrConflict), errors.Is(err, ErrBusy):
 		status, message = 409, "Conversation changed or is busy"
+	case errors.Is(err, errGatewayQueryShape):
+		status, message = http.StatusForbidden, gatewayQueryShapeMessage
 	case errors.Is(err, ErrGateway):
 		status, message = 403, "Controlled query was not authorized or could not be audited"
 	case errors.Is(err, ErrModel):
@@ -1088,7 +1090,12 @@ func (h *Handler) question(w http.ResponseWriter, r *http.Request, p Principal, 
 		if !started {
 			failure(w, err)
 		} else {
-			_ = event(map[string]any{"type": "error", "content": "Request did not complete; no result was released"})
+			eventData := map[string]any{"type": "error", "content": "Request did not complete; no result was released"}
+			if errors.Is(err, errGatewayQueryShape) {
+				eventData["content"] = gatewayQueryShapeMessage
+				eventData["code"] = gatewayQueryShapeCode
+			}
+			_ = event(eventData)
 		}
 		return
 	}
