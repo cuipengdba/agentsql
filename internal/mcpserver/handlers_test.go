@@ -395,6 +395,25 @@ func TestHandlersHashResponseAndAuditDoNotLeakRawSentinel(t *testing.T) {
 	require.NotContains(t, logs.String(), raw)
 }
 
+func TestManagedQueryNullMetadataDoesNotExposeProtectedCells(t *testing.T) {
+	response := pipeline.Response{Decision: model.DecisionAllow, Result: &model.QueryResult{
+		Columns: []string{"amount"}, Rows: [][]string{{""}}, NullBitmap: []byte{1}, RowCount: 1,
+	}}
+	standard := pipelineToolResponse(response, false).Data.(pipelineData)
+	require.Empty(t, standard.NullBitmap)
+	encoded, err := json.Marshal(standard)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "null_bitmap")
+	managed := pipelineToolResponse(response, true).Data.(pipelineData)
+	require.Equal(t, []byte{1}, managed.NullBitmap)
+	response.Redact.TouchedColumns = map[int]mask.SensitiveType{0: mask.TypeGeneric}
+	protected := pipelineToolResponse(response, true).Data.(pipelineData)
+	require.Empty(t, protected.NullBitmap)
+	encoded, err = json.Marshal(protected)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "null_bitmap")
+}
+
 func TestHandlersBlockResponseAndAuditDoNotLeakRawSentinel(t *testing.T) {
 	const raw = "T42_MCP_BLOCK_RAW_SENTINEL_6d19"
 	fixture := newMCPFixture(t, "dml")

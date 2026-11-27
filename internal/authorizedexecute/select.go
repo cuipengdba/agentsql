@@ -295,11 +295,17 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 	if err != nil {
 		return AuthorizedSelectResult{}, &AuthError{Reason: ReasonMaskCapabilityMissing}
 	}
+	if len(maskPlans) != 0 {
+		masked.NullBitmap = nil
+	}
 	if err := ValidateResult(masked, true, limits); err != nil {
 		return AuthorizedSelectResult{}, err
 	}
 	observe(request.Observe, PhaseEncode)
-	encoded, err := json.Marshal(masked)
+	encoded, err := json.Marshal(struct {
+		model.QueryResult
+		NullBitmap []byte `json:"null_bitmap,omitempty"`
+	}{masked, masked.NullBitmap})
 	if err != nil || len(encoded) > limits.EnvelopeBytes {
 		return AuthorizedSelectResult{}, &AuthError{Reason: ReasonEnvelopeLimit}
 	}

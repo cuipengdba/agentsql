@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/cuipengdba/agentsql/internal/audit"
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/compliance"
@@ -1032,17 +1033,42 @@ func (handler *Handler) datasourcesPing(writer http.ResponseWriter, request *htt
 		return
 	}
 	result, err := handler.deps.DatasourcePinger.Ping(request.Context(), datasource)
-	if err != nil {
-		var databaseError *executor.DBError
-		if !errors.As(err, &databaseError) {
-			handler.internal(writer, err)
-			return
-		}
+	var databaseError *executor.DBError
+	if errors.As(err, &databaseError) {
 		result.OK = false
 		code, message := string(databaseError.Code), databaseError.Error()
 		result.ErrorCode, result.ErrorMessage = &code, &message
 	}
+	if auditErr := handler.recordDatasourcePing(request, datasource, result, err); auditErr != nil {
+		handler.fail(writer, http.StatusServiceUnavailable, "audit unavailable")
+		return
+	}
+	if err != nil && databaseError == nil {
+		handler.internal(writer, err)
+		return
+	}
 	handler.ok(writer, result)
+}
+
+func (handler *Handler) recordDatasourcePing(request *http.Request, datasource model.Datasource, result PingResult, pingErr error) error {
+	principal, ok := requestPrincipal(request)
+	if !ok || handler.deps.Runtime.ManagementAudit == nil {
+		return errors.New("datasource ping audit unavailable")
+	}
+	action, actorType := audit.ActionDatasourcePing, "user"
+	entry := model.AuditLog{DatasourceID: &datasource.ID, DBType: &datasource.DBType,
+		Decision: string(model.DecisionAllow), Action: &action, ActorType: &actorType,
+		ActorID: &principal.UserID, LatencyMS: &result.LatencyMS}
+	if pingErr != nil || !result.OK {
+		entry.Decision = string(model.DecisionError)
+		code := string(executor.DBErrorCodeGatewayInternal)
+		if result.ErrorCode != nil {
+			code = *result.ErrorCode
+		}
+		entry.ErrorCode = &code
+	}
+	_, err := handler.deps.Runtime.ManagementAudit.Record(request.Context(), entry)
+	return err
 }
 
 func datasourceFromInput(input datasourceInput) (model.Datasource, error) {

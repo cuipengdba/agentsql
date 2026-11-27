@@ -256,8 +256,9 @@ func (gateway *ControlledGateway) Query(ctx context.Context, p Principal, b Bind
 		return QueryData{}, err
 	}
 	var result struct {
-		AuditID int64 `json:"audit_id"`
-		Result  *struct {
+		AuditID    int64  `json:"audit_id"`
+		NullBitmap []byte `json:"null_bitmap"`
+		Result     *struct {
 			Columns   []string
 			Rows      [][]string
 			Truncated bool
@@ -265,6 +266,16 @@ func (gateway *ControlledGateway) Query(ctx context.Context, p Principal, b Bind
 	}
 	if json.Unmarshal(raw, &result) != nil || result.AuditID <= 0 || result.Result == nil || len(result.Result.Columns) == 0 {
 		return QueryData{}, ErrGateway
+	}
+	width := len(result.Result.Columns)
+	cells := len(result.Result.Rows) * width
+	if len(result.NullBitmap) != 0 {
+		if b.ManagedFileID == "" || len(result.NullBitmap) > (cells+7)/8 {
+			return QueryData{}, ErrGateway
+		}
+		if tail := cells % 8; tail != 0 && len(result.NullBitmap) == (cells+7)/8 && result.NullBitmap[len(result.NullBitmap)-1]>>tail != 0 {
+			return QueryData{}, ErrGateway
+		}
 	}
 	data := QueryData{Fields: result.Result.Columns, Data: make([]map[string]any, 0, len(result.Result.Rows)), FieldsInfo: make([]FieldInfo, 0, len(result.Result.Columns)), AuditID: result.AuditID, Truncated: result.Result.Truncated}
 	seen := map[string]bool{}
@@ -275,13 +286,21 @@ func (gateway *ControlledGateway) Query(ctx context.Context, p Principal, b Bind
 		seen[name] = true
 		data.FieldsInfo = append(data.FieldsInfo, FieldInfo{Name: name})
 	}
-	for _, row := range result.Result.Rows {
+	for rowIndex, row := range result.Result.Rows {
 		if len(row) != len(data.Fields) {
 			return QueryData{}, ErrGateway
 		}
 		item := map[string]any{}
 		for i, name := range data.Fields {
-			item[name] = row[i]
+			cell := rowIndex*width + i
+			if offset := cell / 8; offset < len(result.NullBitmap) && result.NullBitmap[offset]&(1<<(cell%8)) != 0 {
+				if row[i] != "" {
+					return QueryData{}, ErrGateway
+				}
+				item[name] = nil
+			} else {
+				item[name] = row[i]
+			}
 		}
 		data.Data = append(data.Data, item)
 	}

@@ -494,7 +494,7 @@
     {
       "source": "docs/SQLBOT.md",
       "english": "docs/en/SQLBOT.md",
-      "source_sha256": "0cc0a7c40506900cdb1d983ededec895738bd0fc0714b03a446df70904c06c9d"
+      "source_sha256": "57f3cca3462f6c1c6d917113f7f0a1b60811f94aacf0b2e114f4e389c0c135b2"
     },
     {
       "source": "docs/task-read-grants.md",
@@ -1279,7 +1279,7 @@
     {
       "source": "docs/PRODUCT_MODES.md",
       "english": "docs/en/PRODUCT_MODES.md",
-      "source_sha256": "794224b156f56644f2196d8e352bb8c6cc7c472a3b906b340a405ef5256f544b"
+      "source_sha256": "9ffa341778c792b9ed3e034f0a2b7a39ce883ebd62eda535c6e65db70592b0b6"
     },
     {
       "source": "docs/v4.6.0-design.md",
@@ -1380,6 +1380,11 @@
       "source": "docs/v4.16.0-design.md",
       "english": "docs/en/v4.16.0-design.md",
       "source_sha256": "987df34c4ba08afdadcc114fadfabd3c4942f5e37aeca962cb825373729810f4"
+    },
+    {
+      "source": "docs/v4.17.0-design.md",
+      "english": "docs/en/v4.17.0-design.md",
+      "source_sha256": "ce8bc9802913424ad25e9f8a91a2748a9e2180fe2d9c78d69c483d2d52bae335"
     }
   ]
 }

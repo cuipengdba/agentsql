@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGatewayResolveDistinguishesRevokedMappingFromAuditFailure(t *testing.T) {
@@ -149,5 +150,60 @@ func TestGatewayResolveUsesManagedChildNameBehindExcelDisplayName(t *testing.T) 
 	_, err := gateway.resolve(context.Background(), p, b)
 	if err != nil {
 		t.Fatalf("child binding could not resolve: %v", err)
+	}
+}
+
+func TestManagedGatewayNullBitmapAndLegacyRows(t *testing.T) {
+	const table = "agentsql_file_752687ad0e4cf6a22385c9444fb203c3"
+	config, err := encodeSQLBotExcelConfig("orders.csv", []importedFileSheet{{SheetName: "Sheet1", TableName: table, Rows: 3}})
+	require.NoError(t, err)
+	p := Principal{User: User{ID: "7"}, Workspace: "1"}
+	for _, test := range []struct {
+		name   string
+		bitmap []byte
+		want   any
+		deny   bool
+	}{
+		{name: "null remains nil", bitmap: []byte{1}},
+		{name: "older gateway string rows", want: ""},
+		{name: "cannot hide nonempty row", bitmap: []byte{4}, deny: true},
+		{name: "invalid padding", bitmap: []byte{8}, deny: true},
+		{name: "out of bounds", bitmap: []byte{1, 1}, deny: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := mcp.NewServer(&mcp.Implementation{Name: "fixture", Version: "1"}, nil)
+			server.AddTool(&mcp.Tool{Name: "query", InputSchema: map[string]any{"type": "object"}}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				encoded, err := json.Marshal(map[string]any{"decision": "allow", "data": map[string]any{
+					"audit_id": 1, "null_bitmap": test.bitmap, "result": map[string]any{"Columns": []string{"amount"}, "Rows": [][]string{{""}, {""}, {"0"}}},
+				}})
+				return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(encoded)}}}, err
+			})
+			stream := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{JSONResponse: true})
+			endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/v1/integrations/sqlbot/resolve" {
+					_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": resolvedBinding{
+						ID: "child-binding", Revision: 1, Agent: "agent-1", Datasource: "read-1", Schema: "agentsql_files",
+						Dialect: "pg", Token: "SQB1.synthetic", Expires: time.Now().Add(time.Minute),
+					}})
+					return
+				}
+				stream.ServeHTTP(w, r)
+			}))
+			defer endpoint.Close()
+			gateway := &ControlledGateway{Endpoint: endpoint.URL + "/mcp", AllowHTTP: true}
+			binding := Binding{Datasource: "11", Workspace: "1", User: "7", Name: "orders", Type: "excel",
+				ManagedFileID: "22222222222222222222222222222222", Configuration: config,
+				ResolveName: "agentsql-import-33333333333333333333333333333333", Dialect: "pg", BindingID: "child-binding",
+				ConnectorToken: "connector-secret", AgentKey: "agent-secret"}
+			result, err := gateway.Query(context.Background(), p, binding, "SELECT amount FROM agentsql_files."+table)
+			if test.deny {
+				require.ErrorIs(t, err, ErrGateway)
+				require.Empty(t, result.Data)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, []map[string]any{{"amount": test.want}, {"amount": ""}, {"amount": "0"}}, result.Data)
+			require.EqualValues(t, 1, result.AuditID)
+		})
 	}
 }

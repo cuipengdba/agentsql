@@ -252,4 +252,8 @@ type QueryResult struct {
 	RowCount  int
 	Truncated bool
 	LatencyMS int64
+	// NullBitmap records SQL NULLs in row-major order, low bit first. Normal
+	// result serialization keeps the established string rows. The authorized
+	// managed-file adapter explicitly opts in to the null metadata.
+	NullBitmap []byte `json:"-"`
 }

@@ -54,6 +54,7 @@ type publicSchemaColumn struct {
 
 type pipelineData struct {
 	Result      *model.QueryResult `json:"result,omitempty"`
+	NullBitmap  []byte             `json:"null_bitmap,omitempty"`
 	Hits        []model.RuleHit    `json:"hits,omitempty"`
 	EstScanRows int64              `json:"est_scan_rows,omitempty"`
 	ApprovalID  string             `json:"approval_id,omitempty"`
@@ -484,7 +485,7 @@ func (handlers *toolHandlers) executeApproved(ctx context.Context, approvalID st
 	if err != nil {
 		return handlers.internalError("execute_approved", err)
 	}
-	return pipelineToolResponse(response)
+	return pipelineToolResponse(response, false)
 }
 
 func (handlers *toolHandlers) process(ctx context.Context, request pipeline.Request) ToolResponse {
@@ -492,17 +493,19 @@ func (handlers *toolHandlers) process(ctx context.Context, request pipeline.Requ
 		request.DelegatedUserID = human.userID
 		request.DelegatedTenantID = human.tenantID
 	}
-	if binding, scoped := sqlbotScope(ctx); scoped {
+	binding, scoped := sqlbotScope(ctx)
+	if scoped {
 		request.DelegatedBindingID = binding.ID
 	}
 	response, err := handlers.runtime.Pipeline.Process(ctx, request)
 	if err != nil {
 		return handlers.internalError(request.MCPTool, err)
 	}
-	return pipelineToolResponse(response)
+	managedQuery := scoped && binding.ParentBindingID != "" && binding.SchemaName == "agentsql_files" && request.MCPTool == "query"
+	return pipelineToolResponse(response, managedQuery)
 }
 
-func pipelineToolResponse(response pipeline.Response) ToolResponse {
+func pipelineToolResponse(response pipeline.Response, managedQuery bool) ToolResponse {
 	if response.Decision == model.DecisionError {
 		reason := response.ErrorMessage
 		if reason == "" {
@@ -522,6 +525,10 @@ func pipelineToolResponse(response pipeline.Response) ToolResponse {
 		Result: response.Result, Hits: response.Assessment.Hits,
 		EstScanRows: response.Assessment.EstScanRows, ApprovalID: response.ApprovalID,
 		AuditID: response.AuditID, Redact: response.Redact,
+	}
+	if managedQuery && response.Result != nil && (response.Decision == model.DecisionAllow || response.Decision == model.DecisionWarn) &&
+		len(response.Redact.TouchedColumns) == 0 && response.Redact.MaskedCells == 0 {
+		data.NullBitmap = response.Result.NullBitmap
 	}
 	if response.ApprovalID != "" {
 		data.Status = "pending"

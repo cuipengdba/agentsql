@@ -96,6 +96,18 @@ func collectRows(source rowSource, rowLimit int) (model.QueryResult, error) {
 			rowBytes += len(text)
 			totalBytes += len(text)
 			row[index] = text
+			if value == nil {
+				cell := len(result.Rows)*len(columns) + index
+				byteIndex := cell / 8
+				if missing := byteIndex + 1 - len(result.NullBitmap); missing > 0 {
+					if totalBytes > maxRawResultBytes-missing {
+						return model.QueryResult{}, closeRowSource(source, resourceError("AUTH_RESULT_LIMIT"))
+					}
+					totalBytes += missing
+					result.NullBitmap = append(result.NullBitmap, make([]byte, missing)...)
+				}
+				result.NullBitmap[byteIndex] |= 1 << (cell % 8)
+			}
 		}
 		result.Rows = append(result.Rows, row)
 	}
