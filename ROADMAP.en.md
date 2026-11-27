@@ -14,6 +14,7 @@ Default rejection is the prerequisite for each database adaptation. Connection o
 
 | version | Status | confirmed or target range |
 | --- | --- | --- |
+| v4.17.0 | Released ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.17.0)) | Governed PostgreSQL onboarding, credential rotation, and managed CSV/XLSX. [Usage guide](docs/en/v4.17.0-query-guide.md) · [Acceptance and limits](docs/en/v4.17.0-acceptance.md). |
 | v4.16.0 | Released ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.16.0)) | Governed Q&A with row and column access, masking and concurrent isolation. [Usage guide](docs/en/v4.16.0-query-guide.md) · [Acceptance and limits](docs/en/v4.16.0-acceptance.md). |
 | v4.15.0 | Released ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.15.0)) | Two-table joins and business context. [Usage guide](docs/en/v4.15.0-query-guide.md) · [Acceptance and limits](docs/en/v4.15.0-acceptance.md). |
 | v4.14.0 | Released ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.14.0)) | Native single-table filtering, grouping, sorting and limits. Selection across 128 authorized tables with cold and warm verification. [Usage guide](docs/en/v4.14.0-query-guide.md) · [Acceptance and limits](docs/en/v4.14.0-acceptance.md). |
