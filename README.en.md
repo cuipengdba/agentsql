@@ -7,13 +7,13 @@
   <img src="brand/agentsql-wordmark-light.svg" width="360" height="80" alt="AgentSQL">
 </picture>
 
-![Version v4.15.0](https://img.shields.io/badge/Version-v4.15.0-blue)
+![Version v4.16.0](https://img.shields.io/badge/Version-v4.16.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 
 **AgentSQL = an independent AI data Q&A agent plus an MCP Server database security gateway.** Users can ask natural-language questions in AgentSQL's own UI; other AI agents can use AgentSQL as an independent MCP Server. Both entry points share current identity and grants, controlled SQL execution, result masking, and durable audit. AgentSQL native Q&A does not depend on SQLBot. SQLBot is an optional client through a fixed-version adapter.
 
-[Website](https://agentsql.cn/en/) · [Chinese Q&A screenshots and concept images](https://agentsql.cn/en/#qa-gallery) · [v4.15.0 downloads and release scope](https://github.com/cuipengdba/agentsql/releases/tag/v4.15.0) · [Three usage modes](docs/en/PRODUCT_MODES.md) · [Two-table analysis and business context guide](docs/en/v4.15.0-query-guide.md) · [Documentation index](docs/en/README.md)
+[Website](https://agentsql.cn/en/) · [Chinese Q&A screenshots and concept images](https://agentsql.cn/en/#qa-gallery) · [v4.16.0 downloads and release scope](https://github.com/cuipengdba/agentsql/releases/tag/v4.16.0) · [Three usage modes](docs/en/PRODUCT_MODES.md) · [Governed Q&A and data permissions guide](docs/en/v4.16.0-query-guide.md) · [Documentation index](docs/en/README.md)
 
 ## Choose a usage mode
 
@@ -29,11 +29,12 @@ AgentSQL native UI → Go Q&A agent ───────┐
 External AI agent → AgentSQL MCP Server ┘
 ```
 
-## v4.15.0 capabilities and limits
+## v4.16.0 capabilities and limits
 
 | Capability | Current status | Key limit |
 | --- | --- | --- |
 | Native AI data Q&A | **Verified bounded path** | Native Go/Web Q&A with local models, operator-registered PostgreSQL gateway aliases, and current grants; **no SQLBot runtime** |
+| Row access, column access and masking | Verified PostgreSQL path | Each member sees authorized rows and columns. The gateway masks fields and checks current permissions for saved results and downloads. |
 | Business context and two-table joins | Verified PostgreSQL path | Configure terms, SQL examples, and remarks, and aggregate two authorized tables using a registered relation. |
 | Single-table analysis and selection | **Verified on PostgreSQL** | Filter by date, region or status. Group, sort and limit results. Select among currently authorized tables using business names and field remarks, with a gateway audit. |
 | Authorized vector prewarm and Q&A | **Prepare currently allowed schema** | Fixed ONNX table vectors support background prewarm and warm-index reuse; grants are checked again after changes. See this release's notes for model/database environments and measured times |
@@ -47,20 +48,20 @@ External AI agent → AgentSQL MCP Server ┘
 | Active data permissions | **Verified bounded shape** | Explicit current workspace users; built-in administrator/member role qualifiers; nonempty whitelist metadata never exempts row or column filters |
 | Broader compatibility | **Some read-only loading; other paths unverified** | Community management-page lists loading does not validate create/edit/import/export. Real cloud inference, arbitrary role expansion, and direct original-policy DB migration remain unverified. |
 
-Review generated SQL and business meaning before relying on a natural-language answer. v4.15.0 **has not been validated in the user's real business system**; it does not claim 100% compatibility or zero-change cutover. The [official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.15.0) identify the exact commit, acceptance cases, performance measurements, and limits. The [fixed 25-scenario contract](docs/en/sqlbot-community-chatbi-score-v1103.md) is rechecked for the exact release commit. [Release acceptance](docs/en/v4.15.0-acceptance.md) lists evidence, the verified score, and untested scope; incomplete scenarios score zero. This does not measure AgentSQL's independent MCP security gateway capabilities. The public Demo's Q&A model is a **simulation**.
+Review generated SQL and business meaning before relying on a natural-language answer. v4.16.0 **has not been validated in the user's real business system**; it does not claim 100% compatibility or zero-change cutover. The [official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.16.0) identify the exact commit, acceptance cases, performance measurements, and limits. The [fixed 25-scenario contract](docs/en/sqlbot-community-chatbi-score-v1103.md) is rechecked for the exact release commit. [Release acceptance](docs/en/v4.16.0-acceptance.md) lists evidence, the verified score, and untested scope; incomplete scenarios score zero. This does not measure AgentSQL's independent MCP security gateway capabilities. The public Demo's Q&A model is a **simulation**.
 
 ## Quick start
 
-Linux `amd64` / `arm64` native packages require glibc ≥ 2.28 and systemd as PID 1. Verify the official package signature and hashes against the [release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.15.0) first. This command installs the gateway; native Q&A also requires the Q&A component, a local text model, and personal datasource bindings as described in [three usage modes](docs/en/PRODUCT_MODES.md).
+Linux `amd64` / `arm64` native packages require glibc ≥ 2.28 and systemd as PID 1. Verify the official package signature and hashes against the [release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.16.0) first. This command installs the gateway; native Q&A also requires the Q&A component, a local text model, and personal datasource bindings as described in [three usage modes](docs/en/PRODUCT_MODES.md).
 
 ```bash
-curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.15.0/install.sh | sudo sh -s -- install --version v4.15.0
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.16.0/install.sh | sudo sh -s -- install --version v4.16.0
 ```
 
 Docker uses the official multi-architecture image. The quickstart script binds only to loopback and creates a persistent volume:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.15.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v4.15.0
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.16.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v4.16.0
 ```
 
 The gateway console defaults to `http://127.0.0.1:7780`; after the Q&A component is installed, its native UI defaults to `http://127.0.0.1:8000`. The installer generates a persistent administrator password. Non-interactive logs do not display it; root can inspect `/etc/agentsql/agentsql.env`. For remote access, use an SSH tunnel or controlled HTTPS reverse proxy rather than exposing the management port. See the [deployment guide](docs/en/DEPLOY.md) for offline installation, keys, backups, and upgrades.
