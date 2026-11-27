@@ -185,6 +185,18 @@ func TestCollectRowsRejectsTypedNilSource(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestCollectRowsDistinguishesNullEmptyAndZero(t *testing.T) {
+	source := &fakeRowSource{
+		columns: []string{"id", "amount", "note"}, index: -1,
+		rows: [][]any{{1, nil, ""}, {2, 0, ""}, {3, 2, nil}, {4, nil, nil}},
+	}
+	result, err := collectRows(source, 3)
+	require.NoError(t, err)
+	require.True(t, result.Truncated)
+	require.Equal(t, [][]string{{"1", "", ""}, {"2", "0", ""}, {"3", "2", ""}}, result.Rows)
+	require.Equal(t, []byte{0b00000010, 0b00000001}, result.NullBitmap)
+}
+
 func TestReadOnlyExecuteDefense(t *testing.T) {
 	_, err := (&PostgresExecutor{readOnly: true}).Execute(context.Background(), "UPDATE t SET a = 1")
 	require.Error(t, err)
