@@ -14,6 +14,7 @@ Default rejection is the prerequisite for each database adaptation. Connection o
 
 | version | Status | confirmed or target range |
 | --- | --- | --- |
+| v4.16.0 | Released ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.16.0)) | Governed Q&A with row and column access, masking and concurrent isolation. [Usage guide](docs/en/v4.16.0-query-guide.md) · [Acceptance and limits](docs/en/v4.16.0-acceptance.md). |
 | v4.15.0 | Released ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.15.0)) | Two-table joins and business context. [Usage guide](docs/en/v4.15.0-query-guide.md) · [Acceptance and limits](docs/en/v4.15.0-acceptance.md). |
 | v4.14.0 | Released ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.14.0)) | Native single-table filtering, grouping, sorting and limits. Selection across 128 authorized tables with cold and warm verification. [Usage guide](docs/en/v4.14.0-query-guide.md) · [Acceptance and limits](docs/en/v4.14.0-acceptance.md). |
 | v4.13.0 | Released ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.13.0)) | Dimensions, multiple-measure charts and defaults for independent Q&A; fixed same-package score 8/25. Unprovable empty-string numeric fields retain tables. [Acceptance and limits](docs/en/v4.13.0-acceptance.md). |
