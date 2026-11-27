@@ -501,7 +501,7 @@ func (handlers *toolHandlers) process(ctx context.Context, request pipeline.Requ
 	if err != nil {
 		return handlers.internalError(request.MCPTool, err)
 	}
-	managedQuery := scoped && binding.ParentBindingID != "" && binding.Schema == "agentsql_files" && request.MCPTool == "query"
+	managedQuery := scoped && binding.ParentBindingID != "" && binding.SchemaName == "agentsql_files" && request.MCPTool == "query"
 	return pipelineToolResponse(response, managedQuery)
 }
 
