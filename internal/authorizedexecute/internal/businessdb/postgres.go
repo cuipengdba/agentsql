@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -838,6 +839,21 @@ func (source *postgresRowSource) Columns() ([]string, error) {
 		columns[index] = field.Name
 	}
 	return columns, nil
+}
+
+func (source *postgresRowSource) exactNumericBitmap() []byte {
+	var numeric []byte
+	for index, field := range source.rows.FieldDescriptions() {
+		switch field.DataTypeOID {
+		case pgtype.Int2OID, pgtype.Int4OID, pgtype.Int8OID, pgtype.NumericOID:
+			byteIndex := index / 8
+			if missing := byteIndex + 1 - len(numeric); missing > 0 {
+				numeric = append(numeric, make([]byte, missing)...)
+			}
+			numeric[byteIndex] |= 1 << (index % 8)
+		}
+	}
+	return numeric
 }
 
 func (source *postgresRowSource) Next() bool {

@@ -65,6 +65,9 @@ func collectRows(source rowSource, rowLimit int) (model.QueryResult, error) {
 		Columns: append([]string{}, columns...),
 		Rows:    make([][]string, 0, min(rowLimit, 1_024)),
 	}
+	if typed, ok := source.(interface{ exactNumericBitmap() []byte }); ok {
+		result.ExactNumericBitmap = typed.exactNumericBitmap()
+	}
 	for source.Next() {
 		values, err := source.Values()
 		if err != nil {

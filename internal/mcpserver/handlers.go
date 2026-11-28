@@ -53,14 +53,15 @@ type publicSchemaColumn struct {
 }
 
 type pipelineData struct {
-	Result      *model.QueryResult `json:"result,omitempty"`
-	NullBitmap  []byte             `json:"null_bitmap,omitempty"`
-	Hits        []model.RuleHit    `json:"hits,omitempty"`
-	EstScanRows int64              `json:"est_scan_rows,omitempty"`
-	ApprovalID  string             `json:"approval_id,omitempty"`
-	AuditID     int64              `json:"audit_id,omitempty"`
-	Redact      mask.RedactReport  `json:"redact,omitempty"`
-	Status      string             `json:"status,omitempty"`
+	Result             *model.QueryResult `json:"result,omitempty"`
+	NullBitmap         []byte             `json:"null_bitmap,omitempty"`
+	ExactNumericBitmap []byte             `json:"exact_numeric_bitmap,omitempty"`
+	Hits               []model.RuleHit    `json:"hits,omitempty"`
+	EstScanRows        int64              `json:"est_scan_rows,omitempty"`
+	ApprovalID         string             `json:"approval_id,omitempty"`
+	AuditID            int64              `json:"audit_id,omitempty"`
+	Redact             mask.RedactReport  `json:"redact,omitempty"`
+	Status             string             `json:"status,omitempty"`
 }
 
 type approvalData struct {
@@ -485,7 +486,7 @@ func (handlers *toolHandlers) executeApproved(ctx context.Context, approvalID st
 	if err != nil {
 		return handlers.internalError("execute_approved", err)
 	}
-	return pipelineToolResponse(response, false)
+	return pipelineToolResponse(response, false, false)
 }
 
 func (handlers *toolHandlers) process(ctx context.Context, request pipeline.Request) ToolResponse {
@@ -502,10 +503,10 @@ func (handlers *toolHandlers) process(ctx context.Context, request pipeline.Requ
 		return handlers.internalError(request.MCPTool, err)
 	}
 	managedQuery := scoped && binding.ParentBindingID != "" && binding.SchemaName == "agentsql_files" && request.MCPTool == "query"
-	return pipelineToolResponse(response, managedQuery)
+	return pipelineToolResponse(response, managedQuery, scoped && request.MCPTool == "query")
 }
 
-func pipelineToolResponse(response pipeline.Response, managedQuery bool) ToolResponse {
+func pipelineToolResponse(response pipeline.Response, managedQuery, scopedQuery bool) ToolResponse {
 	if response.Decision == model.DecisionError {
 		reason := response.ErrorMessage
 		if reason == "" {
@@ -526,9 +527,14 @@ func pipelineToolResponse(response pipeline.Response, managedQuery bool) ToolRes
 		EstScanRows: response.Assessment.EstScanRows, ApprovalID: response.ApprovalID,
 		AuditID: response.AuditID, Redact: response.Redact,
 	}
-	if managedQuery && response.Result != nil && (response.Decision == model.DecisionAllow || response.Decision == model.DecisionWarn) &&
+	if response.Result != nil && (response.Decision == model.DecisionAllow || response.Decision == model.DecisionWarn) &&
 		len(response.Redact.TouchedColumns) == 0 && response.Redact.MaskedCells == 0 {
-		data.NullBitmap = response.Result.NullBitmap
+		if managedQuery {
+			data.NullBitmap = response.Result.NullBitmap
+		}
+		if scopedQuery {
+			data.ExactNumericBitmap = response.Result.ExactNumericBitmap
+		}
 	}
 	if response.ApprovalID != "" {
 		data.Status = "pending"

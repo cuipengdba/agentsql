@@ -70,14 +70,6 @@ func (service *Service) NarrateRecord(ctx context.Context, p Principal, id ID, k
 	if record.Data == nil || record.Data.AuditID <= 0 || len(record.Data.Data) == 0 {
 		return Narrative{}, ErrGateway
 	}
-	var config ModelConfig
-	if _, err := service.Store.get(ctx, objectKey{"model", string(p.Workspace), "workspace", "default"}, &config); err != nil {
-		return Narrative{}, err
-	}
-	model, ok := service.Model.(NarrativeGenerator)
-	if !ok {
-		return Narrative{}, ErrModel
-	}
 	rows := record.Data.Data
 	if len(rows) > 20 {
 		rows = rows[:20]
@@ -89,6 +81,23 @@ func (service *Service) NarrateRecord(ctx context.Context, p Principal, id ID, k
 	content := ""
 	analyzedRows := len(rows)
 	truncated := sample.Truncated
+	if kind == "analysis" {
+		if facts, ok := resultAnalysisFacts(*record.Data, record.Question); ok {
+			content, method = facts, analysisFactsMethod
+		}
+	}
+	var config ModelConfig
+	var model NarrativeGenerator
+	if content == "" {
+		if _, err := service.Store.get(ctx, objectKey{"model", string(p.Workspace), "workspace", "default"}, &config); err != nil {
+			return Narrative{}, err
+		}
+		var ok bool
+		model, ok = service.Model.(NarrativeGenerator)
+		if !ok {
+			return Narrative{}, ErrModel
+		}
+	}
 	if kind == "predict" {
 		if forecast, forecastErr := forecastData(id, *record.Data); forecastErr == nil {
 			content = illustrativeForecastNarrative(record.Question, forecast)
@@ -115,6 +124,9 @@ func (service *Service) NarrateRecord(ctx context.Context, p Principal, id ID, k
 		return Narrative{}, err
 	}
 	if fresh.Data == nil || fresh.Data.AuditID <= 0 || !reflect.DeepEqual(record.Data.Fields, fresh.Data.Fields) || !reflect.DeepEqual(record.Data.Data, fresh.Data.Data) || record.Data.Truncated != fresh.Data.Truncated {
+		return Narrative{}, ErrGateway
+	}
+	if method == analysisFactsMethod && !reflect.DeepEqual(record.Data.FieldsInfo, fresh.Data.FieldsInfo) {
 		return Narrative{}, ErrGateway
 	}
 	if err := service.bindingUnchanged(ctx, p, binding, revision, digest); err != nil {

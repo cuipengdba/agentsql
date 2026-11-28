@@ -397,18 +397,21 @@ func TestHandlersHashResponseAndAuditDoNotLeakRawSentinel(t *testing.T) {
 
 func TestManagedQueryNullMetadataDoesNotExposeProtectedCells(t *testing.T) {
 	response := pipeline.Response{Decision: model.DecisionAllow, Result: &model.QueryResult{
-		Columns: []string{"amount"}, Rows: [][]string{{""}}, NullBitmap: []byte{1}, RowCount: 1,
+		Columns: []string{"amount"}, Rows: [][]string{{""}}, NullBitmap: []byte{1}, ExactNumericBitmap: []byte{1}, RowCount: 1,
 	}}
-	standard := pipelineToolResponse(response, false).Data.(pipelineData)
+	standard := pipelineToolResponse(response, false, false).Data.(pipelineData)
 	require.Empty(t, standard.NullBitmap)
+	require.Empty(t, standard.ExactNumericBitmap)
 	encoded, err := json.Marshal(standard)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "null_bitmap")
-	managed := pipelineToolResponse(response, true).Data.(pipelineData)
+	managed := pipelineToolResponse(response, true, true).Data.(pipelineData)
 	require.Equal(t, []byte{1}, managed.NullBitmap)
+	require.Equal(t, []byte{1}, managed.ExactNumericBitmap)
 	response.Redact.TouchedColumns = map[int]mask.SensitiveType{0: mask.TypeGeneric}
-	protected := pipelineToolResponse(response, true).Data.(pipelineData)
+	protected := pipelineToolResponse(response, true, true).Data.(pipelineData)
 	require.Empty(t, protected.NullBitmap)
+	require.Empty(t, protected.ExactNumericBitmap)
 	encoded, err = json.Marshal(protected)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "null_bitmap")
