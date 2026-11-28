@@ -1410,6 +1410,11 @@
       "source": "docs/v4.18.0-design.md",
       "english": "docs/en/v4.18.0-design.md",
       "source_sha256": "e418ccff880b4bf63c2d26a74889e8b195f6fd63b141a3d32896ac879ccedc4b"
+    },
+    {
+      "source": "docs/v4.19.0-design.md",
+      "english": "docs/en/v4.19.0-design.md",
+      "source_sha256": "4d9486266219ee84f11e8e5a86291e65110dbe79546ae498c3070f4d37c862bb"
     }
   ]
 }

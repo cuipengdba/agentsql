@@ -186,6 +186,7 @@ func (run *pipelineRun) columnDurableAudit(
 func cloneQueryResult(source model.QueryResult) model.QueryResult {
 	result := source
 	result.NullBitmap = append([]byte(nil), source.NullBitmap...)
+	result.ExactNumericBitmap = append([]byte(nil), source.ExactNumericBitmap...)
 	result.Columns = append([]string(nil), source.Columns...)
 	result.Rows = make([][]string, len(source.Rows))
 	for index := range source.Rows {

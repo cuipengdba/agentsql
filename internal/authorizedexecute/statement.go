@@ -238,6 +238,7 @@ func (statement *columnBoundStatement) ColumnAuthorizationResult() (AuthorizedSe
 func cloneAuthorizedSelectResult(source AuthorizedSelectResult) AuthorizedSelectResult {
 	result := source
 	result.Result.NullBitmap = append([]byte(nil), source.Result.NullBitmap...)
+	result.Result.ExactNumericBitmap = append([]byte(nil), source.Result.ExactNumericBitmap...)
 	result.Result.Columns = append([]string(nil), source.Result.Columns...)
 	result.Result.Rows = make([][]string, len(source.Result.Rows))
 	for index := range source.Result.Rows {

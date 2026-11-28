@@ -297,6 +297,7 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 	}
 	if len(maskPlans) != 0 {
 		masked.NullBitmap = nil
+		masked.ExactNumericBitmap = nil
 	}
 	if err := ValidateResult(masked, true, limits); err != nil {
 		return AuthorizedSelectResult{}, err
@@ -304,8 +305,9 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 	observe(request.Observe, PhaseEncode)
 	encoded, err := json.Marshal(struct {
 		model.QueryResult
-		NullBitmap []byte `json:"null_bitmap,omitempty"`
-	}{masked, masked.NullBitmap})
+		NullBitmap         []byte `json:"null_bitmap,omitempty"`
+		ExactNumericBitmap []byte `json:"exact_numeric_bitmap,omitempty"`
+	}{masked, masked.NullBitmap, masked.ExactNumericBitmap})
 	if err != nil || len(encoded) > limits.EnvelopeBytes {
 		return AuthorizedSelectResult{}, &AuthError{Reason: ReasonEnvelopeLimit}
 	}

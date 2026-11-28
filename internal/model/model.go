@@ -256,4 +256,6 @@ type QueryResult struct {
 	// result serialization keeps the established string rows. The authorized
 	// managed-file adapter explicitly opts in to the null metadata.
 	NullBitmap []byte `json:"-"`
+	// ExactNumericBitmap marks bounded, unmasked PostgreSQL integer/decimal columns.
+	ExactNumericBitmap []byte `json:"-"`
 }

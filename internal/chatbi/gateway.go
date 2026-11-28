@@ -256,9 +256,10 @@ func (gateway *ControlledGateway) Query(ctx context.Context, p Principal, b Bind
 		return QueryData{}, err
 	}
 	var result struct {
-		AuditID    int64  `json:"audit_id"`
-		NullBitmap []byte `json:"null_bitmap"`
-		Result     *struct {
+		AuditID            int64  `json:"audit_id"`
+		NullBitmap         []byte `json:"null_bitmap"`
+		ExactNumericBitmap []byte `json:"exact_numeric_bitmap"`
+		Result             *struct {
 			Columns   []string
 			Rows      [][]string
 			Truncated bool
@@ -269,6 +270,13 @@ func (gateway *ControlledGateway) Query(ctx context.Context, p Principal, b Bind
 	}
 	width := len(result.Result.Columns)
 	cells := len(result.Result.Rows) * width
+	if len(result.ExactNumericBitmap) > (width+7)/8 {
+		return QueryData{}, ErrGateway
+	}
+	if tail := width % 8; tail != 0 && len(result.ExactNumericBitmap) == (width+7)/8 &&
+		result.ExactNumericBitmap[len(result.ExactNumericBitmap)-1]>>tail != 0 {
+		return QueryData{}, ErrGateway
+	}
 	if len(result.NullBitmap) != 0 {
 		if b.ManagedFileID == "" || len(result.NullBitmap) > (cells+7)/8 {
 			return QueryData{}, ErrGateway
@@ -279,12 +287,13 @@ func (gateway *ControlledGateway) Query(ctx context.Context, p Principal, b Bind
 	}
 	data := QueryData{Fields: result.Result.Columns, Data: make([]map[string]any, 0, len(result.Result.Rows)), FieldsInfo: make([]FieldInfo, 0, len(result.Result.Columns)), AuditID: result.AuditID, Truncated: result.Result.Truncated}
 	seen := map[string]bool{}
-	for _, name := range data.Fields {
+	for index, name := range data.Fields {
 		if name == "" || seen[name] {
 			return QueryData{}, ErrGateway
 		}
 		seen[name] = true
-		data.FieldsInfo = append(data.FieldsInfo, FieldInfo{Name: name})
+		data.FieldsInfo = append(data.FieldsInfo, FieldInfo{Name: name,
+			Numeric: index/8 < len(result.ExactNumericBitmap) && result.ExactNumericBitmap[index/8]&(1<<(index%8)) != 0})
 	}
 	for rowIndex, row := range result.Result.Rows {
 		if len(row) != len(data.Fields) {
