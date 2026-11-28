@@ -14,6 +14,7 @@ Default rejection is the prerequisite for each database adaptation. Connection o
 
 | version | Status | confirmed or target range |
 | --- | --- | --- |
+| v4.18.0 | Released ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.18.0)) | Standalone MCP Server, basic assistant, and Type 4 page embedding. [Usage guide](docs/en/v4.18.0-query-guide.md) · [Acceptance and limits](docs/en/v4.18.0-acceptance.md). |
 | v4.17.0 | Released ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.17.0)) | Governed PostgreSQL onboarding, credential rotation, and managed CSV/XLSX. [Usage guide](docs/en/v4.17.0-query-guide.md) · [Acceptance and limits](docs/en/v4.17.0-acceptance.md). |
 | v4.16.0 | Released ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.16.0)) | Governed Q&A with row and column access, masking and concurrent isolation. [Usage guide](docs/en/v4.16.0-query-guide.md) · [Acceptance and limits](docs/en/v4.16.0-acceptance.md). |
 | v4.15.0 | Released ([Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.15.0)) | Two-table joins and business context. [Usage guide](docs/en/v4.15.0-query-guide.md) · [Acceptance and limits](docs/en/v4.15.0-acceptance.md). |
